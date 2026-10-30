@@ -4,7 +4,7 @@ The closest `AGENTS.md` wins. Explicit user instructions override this file. The
 
 ## What this package is
 
-apb-catalog's API in TypeScript for the web apps, published as `@anndata-omics-bridge/apb-catalog`. It reimplements the catalog on the bundle apb-catalog releases, never apb2's conversion. The plan is TODO_catalog_typescript.md under the apb-catalog planning folder.
+apb-catalog's API in TypeScript for the web apps, published as `@anndata-omics-bridge/apb-catalog`. It reimplements the catalog on the bundle apb-catalog releases, never apb2's conversion. Open work is in the workspace's TODO_npm_release.md under the apb-catalog-ts planning folder.
 
 - The bundle is served with the data and fetched by `Bundle.load(url)`; the package ships no bundle
 - `DataCatalog.load` starts from a result's provenance JSON (the Parquet result's `manifest.json`); lookups never fetch Parquet, data calls fetch one file once
