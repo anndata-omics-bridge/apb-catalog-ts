@@ -1,0 +1,44 @@
+name: publish
+
+# Publishes to npm on a version tag, with npm trusted publishing: the package's settings on npmjs.com
+# name this repository and workflow, so no token secret is needed. The first version is published by
+# hand, because a package must exist before it can name a trusted publisher.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download apb-catalog's bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build
+          gh release download --repo anndata-omics-bridge/apb-catalog --dir build \
+            --pattern apb-catalog-bundle.tar.gz --pattern apb-catalog-test-bundle.tar.gz
+          for archive in build/*.tar.gz; do tar -xzf "$archive" -C build; done
+
+      - name: Check
+        run: make check APB_CATALOG_BUILD=build
+
+      - name: Build
+        run: make build
+
+      - name: Publish
+        run: npm publish --provenance --access public

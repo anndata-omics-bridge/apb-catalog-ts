@@ -1,0 +1,40 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The bundle and the test bundle of apb-catalog's latest release; the tests compare every
+      # answer with the ones Python recorded there.
+      - name: Download apb-catalog's bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build
+          gh release download --repo anndata-omics-bridge/apb-catalog --dir build \
+            --pattern apb-catalog-bundle.tar.gz --pattern apb-catalog-test-bundle.tar.gz
+          for archive in build/*.tar.gz; do tar -xzf "$archive" -C build; done
+
+      - name: Check
+        run: make check APB_CATALOG_BUILD=build
+
+      - name: Build
+        run: make build
