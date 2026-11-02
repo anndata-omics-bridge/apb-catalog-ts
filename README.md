@@ -106,7 +106,6 @@ The file server must answer HTTP range requests.
 ```bash
 npm ci
 make check     # type check and every test
-make types     # regenerate src/generated/ from the bundle's JSON schemas
 ```
 
 The tests read both bundles from `APB_CATALOG_BUILD`, by default `../apb-catalog/build` (`make bundle` in apb-catalog).

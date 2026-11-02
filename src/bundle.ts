@@ -1,10 +1,11 @@
-// The bundle apb-catalog releases: rules and catalogue sets. The app serves it with the data; a
+// The bundle apb-catalog releases: rules and catalogue tables. The app serves it with the data; a
 // Bundle fetches all of it once, so every lookup afterwards answers without waiting.
 
+import { parseCsv, type Table } from './csv.js'
 import { isObject, strings, type Json, type JsonObject } from './json.js'
 
-// The newest bundle format this package reads.
-export const BUNDLE_FORMAT = 1
+// The bundle format this package reads.
+export const BUNDLE_FORMAT = 2
 
 // A URL as given, or relative to the page.
 export function absoluteUrl(url: string | URL): URL {
@@ -17,19 +18,27 @@ export async function fetchJson(url: URL): Promise<Json> {
   return (await response.json()) as Json
 }
 
+async function fetchText(url: URL): Promise<string> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`fetching ${url.href} failed: ${response.status} ${response.statusText}`)
+  return await response.text()
+}
+
 export class Bundle {
   readonly url: URL
   readonly manifest: JsonObject
   readonly #files: Map<string, Json>
+  readonly #tables: Map<string, Table>
   readonly #memo = new Map<string, unknown>()
 
-  private constructor(url: URL, manifest: JsonObject, files: Map<string, Json>) {
+  private constructor(url: URL, manifest: JsonObject, files: Map<string, Json>, tables: Map<string, Table>) {
     this.url = url
     this.manifest = manifest
     this.#files = files
+    this.#tables = tables
   }
 
-  // Fetch the bundle whose manifest.json is at `url`, and every JSON file a lookup reads.
+  // Fetch the bundle whose manifest.json is at `url`, and every JSON and CSV file a lookup reads.
   static async load(url: string | URL): Promise<Bundle> {
     const manifestUrl = absoluteUrl(url)
     const manifest = await fetchJson(manifestUrl)
@@ -41,9 +50,24 @@ export class Bundle {
           'update @anndata-omics-bridge/apb-catalog to read it',
       )
     }
-    const paths = strings(manifest.files).filter((path) => path.endsWith('.json') && !path.startsWith('schemas/'))
-    const read = await Promise.all(paths.map((path) => fetchJson(new URL(path, manifestUrl))))
-    return new Bundle(manifestUrl, manifest, new Map(paths.map((path, index) => [path, read[index] as Json])))
+    if (format < BUNDLE_FORMAT) {
+      throw new Error(
+        `bundle ${String(manifest.version)} has format ${format}; this package reads format ${BUNDLE_FORMAT}`,
+      )
+    }
+    const files = strings(manifest.files)
+    const paths = files.filter((path) => path.endsWith('.json'))
+    const tables = files.filter((path) => path.endsWith('.csv'))
+    const [read, texts] = await Promise.all([
+      Promise.all(paths.map((path) => fetchJson(new URL(path, manifestUrl)))),
+      Promise.all(tables.map((path) => fetchText(new URL(path, manifestUrl)))),
+    ])
+    return new Bundle(
+      manifestUrl,
+      manifest,
+      new Map(paths.map((path, index) => [path, read[index] as Json])),
+      new Map(tables.map((path, index) => [path, parseCsv(texts[index] as string)])),
+    )
   }
 
   get version(): string {
@@ -59,6 +83,14 @@ export class Bundle {
   json(...path: string[]): Json {
     const name = path.join('/')
     const found = this.#files.get(name)
+    if (found === undefined) throw new Error(`the bundle has no ${name}`)
+    return found
+  }
+
+  // One CSV table of the bundle, by its path in the bundle.
+  csv(...path: string[]): Table {
+    const name = path.join('/')
+    const found = this.#tables.get(name)
     if (found === undefined) throw new Error(`the bundle has no ${name}`)
     return found
   }

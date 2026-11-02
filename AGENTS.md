@@ -10,7 +10,7 @@ apb-catalog's API in TypeScript for the web apps, published as `@anndata-omics-b
 - `DataCatalog.load` starts from a result's provenance JSON (the Parquet result's `manifest.json`); lookups never fetch Parquet, data calls fetch one file once
 - `tests/catalog.test.ts`, `tests/data-catalog.test.ts` and `tests/tables.test.ts` run every answer the test bundle records; a change that makes TypeScript answer differently from Python is a bug here, or a change that belongs in apb-catalog first
 - Each source file mirrors one apb-catalog module and one apbCatalogR file: `source.ts`, `rules.ts`, `resolver.ts`, `catalog.ts`, `coverage.ts`, `table.ts`; `provenance.ts` replaces the R Parquet reader
-- `src/index.ts` is the only public module; `src/generated/` is written by `make types`, never by hand
+- `src/index.ts` is the only public module
 
 ## Conventions
 
@@ -28,4 +28,3 @@ As apb-export-ui's `web/` and APB Studio's `viewer/`: TypeScript 7, strict; test
 | Tests | `make test` |
 | Gate | `make check` |
 | Build `dist/` | `make build` |
-| Regenerate types | `make types` |

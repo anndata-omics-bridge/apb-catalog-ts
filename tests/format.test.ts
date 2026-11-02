@@ -1,4 +1,4 @@
-// A bundle of a newer format, or a result of another format, is refused with a clear error.
+// A bundle of another format, or a result of another format, is refused with a clear error.
 
 import assert from 'node:assert/strict'
 import { cpSync, mkdtempSync, writeFileSync } from 'node:fs'
@@ -13,6 +13,7 @@ const RESULT = 'maxquant_wide-peptidoform_ion.parquet'
 
 let served: Served
 let newer: string
+let older: string
 
 before(async () => {
   newer = mkdtempSync(join(tmpdir(), 'apb-catalog-newer-'))
@@ -20,17 +21,24 @@ before(async () => {
   const manifest = readJson(join(BUNDLE, 'manifest.json'))
   assert.ok(isObject(manifest))
   writeFileSync(join(newer, 'bundle', 'manifest.json'), JSON.stringify({ ...manifest, bundle_format: 99 }))
+  older = mkdtempSync(join(tmpdir(), 'apb-catalog-older-'))
+  cpSync(BUNDLE, join(older, 'bundle'), { recursive: true })
+  writeFileSync(join(older, 'bundle', 'manifest.json'), JSON.stringify({ ...manifest, bundle_format: 1 }))
   const results = unpackResults()
   const provenance = readJson(join(results, RESULT, 'manifest.json'))
   assert.ok(isObject(provenance))
   writeFileSync(join(results, RESULT, 'manifest.json'), JSON.stringify({ ...provenance, format_version: '8' }))
-  served = await serve({ bundle: BUNDLE, newer: join(newer, 'bundle'), results })
+  served = await serve({ bundle: BUNDLE, newer: join(newer, 'bundle'), older: join(older, 'bundle'), results })
 })
 
 after(() => served.close())
 
 test('a bundle of a newer format is refused', async () => {
   await assert.rejects(Bundle.load(served.url('newer/manifest.json')), /has format 99; update @anndata-omics-bridge/)
+})
+
+test('a bundle of an older format is refused', async () => {
+  await assert.rejects(Bundle.load(served.url('older/manifest.json')), /has format 1; this package reads format 2/)
 })
 
 test('a result of another Parquet format version is refused', async () => {

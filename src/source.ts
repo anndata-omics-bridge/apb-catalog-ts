@@ -2,13 +2,9 @@
 // .vocabulary.
 
 import type { Bundle } from './bundle.js'
-import type { AnnotationCatalogue as AnnotationFile } from './generated/annotation-catalogue.js'
-import type { CataloguesSchema } from './generated/catalogues.js'
-import type { ProducerCatalogue as ProducerFile } from './generated/producer-catalogue.js'
-import type { RequirementRow as RequirementFile, RequirementsSchema } from './generated/requirements.js'
-import type { SourceCatalogue as SourceFile, SourceEntry } from './generated/source-catalogue.js'
-import type { SetVocabulary, Vocabulary } from './generated/vocabulary.js'
-import { compareC, isObject, sortC, type JsonObject } from './json.js'
+import type { Row } from './csv.js'
+import { isObject, sortC, type JsonObject } from './json.js'
+import { addressKey, ruleLevels } from './rules.js'
 
 export const UNKNOWN = 'unknown'
 
@@ -72,6 +68,12 @@ export interface AnnotationCatalogue {
 
 export type Source = VendorCatalogue | ProducerCatalogue | AnnotationCatalogue
 
+// What one set's entries mean: its qualifiers, each with its admitted values, "unknown" among them.
+export interface SetVocabulary {
+  definition: string
+  qualifiers: Record<string, { definition: string; values: Record<string, string> }>
+}
+
 export interface RequirementRow {
   level: string
   location: string
@@ -80,7 +82,7 @@ export interface RequirementRow {
   requirement: string
 }
 
-// A request accepts any subset of the qualifiers, each with admitted values or "unknown".
+// A request accepts any subset of the qualifiers, each with admitted values; every qualifier admits "unknown".
 export function checkPredicate(vocabulary: SetVocabulary, qualifiers: Accepted): void {
   for (const [name, accepted] of Object.entries(qualifiers)) {
     if (accepted.length === 0) throw new Error(`qualifier '${name}' accepts no value`)
@@ -93,16 +95,11 @@ function checkValue(vocabulary: SetVocabulary, name: string, value: string): voi
   if (qualifier === undefined) {
     throw new Error(`unknown qualifier '${name}'; declared: ${sortC(Object.keys(vocabulary.qualifiers)).join(', ')}`)
   }
-  if (value !== UNKNOWN && !(value in qualifier.values)) {
+  if (!(value in qualifier.values)) {
     throw new Error(
       `qualifier '${name}' does not admit '${value}'; admitted: ${sortC(Object.keys(qualifier.values)).join(', ')}`,
     )
   }
-}
-
-// The location, varm table and name a level's retained fields are indexed by, as one string.
-export function addressKey(location: string, table: string | null, name: string): string {
-  return `${location}\x1f${table ?? ''}\x1f${name}`
 }
 
 export function referenceKey(reference: EntryReference): string {
@@ -110,21 +107,87 @@ export function referenceKey(reference: EntryReference): string {
   return addressKey(reference.location, reference.table, reference.name)
 }
 
-function newEntry(found: SourceEntry): Entry {
-  const reference = found.reference
-  return {
-    entry_id: found.entry_id,
-    rules: [...found.rules],
-    reference: {
-      level: reference.level,
-      location: reference.location,
-      name: reference.name ?? null,
-      table: reference.table ?? null,
-      role: reference.role ?? null,
-      prefix: reference.prefix ?? null,
-    },
-    qualifiers: { ...found.qualifiers },
+// A ";"-separated list of one CSV cell; none when the cell is empty.
+function cellList(text: string, separator = ';'): string[] {
+  return text === '' ? [] : text.split(separator)
+}
+
+// One entry from its entries.csv row and its other qualifiers.
+function rowEntry(row: Row, qualifiers: Record<string, string>): Entry {
+  const by = row.reference_by
+  if (by !== 'name' && by !== 'role' && by !== 'prefix') {
+    throw new Error(`${row.entry_id}: reference_by is name, role or prefix`)
   }
+  return {
+    entry_id: row.entry_id,
+    rules: cellList(row.rules),
+    reference: {
+      level: row.level,
+      location: row.location,
+      name: by === 'name' ? row.reference : null,
+      table: row.table === '' ? null : row.table,
+      role: by === 'role' ? row.reference : null,
+      prefix: by === 'prefix' ? row.reference : null,
+    },
+    qualifiers: { kind: row.kind, ...qualifiers },
+  }
+}
+
+// One catalogue per software of apb2's packaged rules, each reviewing every rule level of that
+// software, when the set has vendor entries; none otherwise.
+function vendorCatalogues(bundle: Bundle, name: string, entries: Map<string, Entry[]>): VendorCatalogue[] {
+  if (entries.size === 0) return []
+  const variants = new Map<string, Variant[]>()
+  for (const found of ruleLevels(bundle)) {
+    const listed = variants.get(found.software_name) ?? []
+    listed.push({ rule: found.rule, level: found.level, software_version_pattern: found.software_version_pattern })
+    variants.set(found.software_name, listed)
+  }
+  const unknown = [...entries.keys()].filter((software) => !variants.has(software))
+  if (unknown.length > 0) {
+    throw new Error(`${name}: no packaged rule declares the software ${sortC(unknown).join(', ')}`)
+  }
+  return [...variants].map(([software, found]) => ({
+    type: 'vendor',
+    label: software,
+    software_name: software,
+    variants: found,
+    entries: entries.get(software) ?? [],
+  }))
+}
+
+// A set's vocabulary from its vocabulary.csv rows: the set's, each qualifier's, and each value's.
+function setVocabulary(rows: Row[], head: Row): SetVocabulary {
+  const qualifiers: SetVocabulary['qualifiers'] = {}
+  for (const row of rows) {
+    if (row.qualifier !== '' && row.value === '') qualifiers[row.qualifier] = { definition: row.definition, values: {} }
+  }
+  for (const row of rows) {
+    if (row.value === '') continue
+    const qualifier = qualifiers[row.qualifier]
+    if (qualifier === undefined) throw new Error(`vocabulary.csv defines '${row.value}' of no qualifier`)
+    qualifier.values[row.value] = row.definition
+  }
+  return { definition: head.definition, qualifiers }
+}
+
+interface DataPackage {
+  version: string
+  resources: { name: string; schema: { fields: { name: string }[] } }[]
+}
+
+// One catalogue table of the bundle, read once; its columns must be those datapackage.json declares.
+function catalogueRows(bundle: Bundle, table: string): Row[] {
+  return bundle.memo(`table:${table}`, () => {
+    const found = bundle.csv('catalogues', `${table}.csv`)
+    const datapackage = bundle.json('catalogues', 'datapackage.json') as unknown as DataPackage
+    const resource = datapackage.resources.find((candidate) => candidate.name === table)
+    const declared = resource?.schema.fields.map((field) => field.name) ?? []
+    if (found.columns.join(',') !== declared.join(',')) {
+      throw new Error(`${table}.csv has the columns ${found.columns.join(', ')}, not ${declared.join(', ')}`)
+    }
+    return found.rows
+  })
 }
 
 // The entry with its reference bound to one level's column.
@@ -210,56 +273,56 @@ export class CatalogueSet {
   readonly #byVersion = new Map<string, ReviewedRule>()
 
   constructor(bundle: Bundle, name: string) {
-    const descriptions = bundle.json('catalogues', 'catalogues.json') as unknown as CataloguesSchema
-    const description = descriptions[name]
-    if (description === undefined) {
-      throw new Error(`unknown catalogue '${name}'; packaged: ${Object.keys(descriptions).join(', ')}`)
+    const rows = (table: string): Row[] => catalogueRows(bundle, table).filter((row) => row.set === name)
+    const vocabulary = rows('vocabulary')
+    const heads = vocabulary.filter((row) => row.qualifier === '')
+    const head = heads[0]
+    if (heads.length !== 1 || head === undefined) {
+      throw new Error(`unknown catalogue '${name}'; packaged: ${setNames(bundle).join(', ')}`)
     }
-    const vocabularies = bundle.json('catalogues', 'vocabulary.json') as unknown as Vocabulary
-    const vocabulary = vocabularies.sets[name]
-    if (vocabulary === undefined) throw new Error(`the bundle's vocabulary has no set '${name}'`)
-    const folder = <T>(kind: string): T[] => {
-      const prefix = `catalogues/${kind}/${name}/`
-      return bundle.files
-        .filter((path) => path.startsWith(prefix) && path.endsWith('.json') && !path.slice(prefix.length).includes('/'))
-        .sort(compareC)
-        .map((path) => bundle.json(path) as unknown as T)
+    const qualifiers = new Map<string, Record<string, string>>()
+    for (const row of rows('entry_qualifiers')) {
+      qualifiers.set(row.entry_id, { ...qualifiers.get(row.entry_id), [row.qualifier]: row.value })
     }
+    const bySource = new Map<string, Entry[]>()
+    for (const row of rows('entries')) {
+      bySource.set(row.source, [...(bySource.get(row.source) ?? []), rowEntry(row, qualifiers.get(row.entry_id) ?? {})])
+    }
+    const runs = rows('producers')
+    const vendors = new Map<string, Entry[]>()
+    const producers: ProducerCatalogue[] = []
+    const annotations: AnnotationCatalogue[] = []
+    for (const [source, entries] of bySource) {
+      const separator = source.indexOf(':')
+      const prefix = separator < 0 ? '' : source.slice(0, separator)
+      const named = source.slice(separator + 1)
+      if (prefix === 'producer') {
+        const run = runs.find((row) => row.producer === named)
+        producers.push({
+          type: 'producer',
+          label: source,
+          producer: named,
+          requires: run === undefined ? [] : cellList(run.requires, '.'),
+          instruction: run === undefined ? null : run.instruction,
+          entries,
+        })
+      } else if (prefix === 'annotation') {
+        annotations.push({ type: 'annotation', label: source, convention: named, entries })
+      } else vendors.set(source, entries)
+    }
+    const datapackage = bundle.json('catalogues', 'datapackage.json') as unknown as DataPackage
     this.name = name
-    this.vocabulary = vocabulary
-    this.vocabulary_version = vocabularies.vocabulary_version
-    this.description = { purpose: description.purpose, used_by: [...description.used_by] }
-    this.catalogues = folder<SourceFile>('sources').map((found) => ({
-      type: 'vendor',
-      label: found.software_name,
-      software_name: found.software_name,
-      variants: found.variants.map((variant) => ({
-        rule: variant.rule,
-        level: variant.level,
-        software_version_pattern: variant.software_version_pattern,
-      })),
-      entries: found.entries.map(newEntry),
-    }))
-    this.producers = folder<ProducerFile>('producers').map((found) => ({
-      type: 'producer',
-      label: `producer:${found.producer}`,
-      producer: found.producer,
-      requires: [...(found.requires ?? [])],
-      instruction: found.instruction ?? null,
-      entries: found.entries.map(newEntry),
-    }))
-    this.annotations = folder<AnnotationFile>('annotations').map((found) => ({
-      type: 'annotation',
-      label: `annotation:${found.convention}`,
-      convention: found.convention,
-      entries: found.entries.map(newEntry),
-    }))
-    const requirements = bundle.json('catalogues', 'requirements.json') as unknown as RequirementsSchema
-    this.requirements = (requirements[name] ?? []).map((row: RequirementFile) => ({
+    this.vocabulary = setVocabulary(vocabulary, head)
+    this.vocabulary_version = datapackage.version
+    this.description = { purpose: head.purpose, used_by: cellList(head.used_by) }
+    this.catalogues = vendorCatalogues(bundle, name, vendors)
+    this.producers = producers
+    this.annotations = annotations
+    this.requirements = rows('requirements').map((row) => ({
       level: row.level,
       location: row.location,
       kind: row.kind,
-      qualifiers: { ...(row.qualifiers ?? {}) },
+      qualifiers: {},
       requirement: row.requirement,
     }))
     for (const catalogue of this.catalogues) {
@@ -298,5 +361,7 @@ export function catalogueSet(bundle: Bundle, name: string): CatalogueSet {
 }
 
 export function setNames(bundle: Bundle): string[] {
-  return Object.keys(bundle.json('catalogues', 'catalogues.json') as JsonObject)
+  return catalogueRows(bundle, 'vocabulary')
+    .filter((row) => row.qualifier === '')
+    .map((row) => row.set)
 }

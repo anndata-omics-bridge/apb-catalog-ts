@@ -2,7 +2,11 @@
 
 import type { Bundle } from './bundle.js'
 import { isObject, strings, type Json, type JsonObject } from './json.js'
-import { addressKey } from './source.js'
+
+// The location, varm table and name a level's retained fields are indexed by, as one string.
+export function addressKey(location: string, table: string | null, name: string): string {
+  return `${location}\x1f${table ?? ''}\x1f${name}`
+}
 
 export interface RuleLevel {
   rule: string

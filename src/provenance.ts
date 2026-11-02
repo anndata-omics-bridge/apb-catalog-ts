@@ -8,7 +8,7 @@ import type { AsyncBuffer, FileMetaData } from 'hyparquet'
 import { compressors } from 'hyparquet-compressors'
 import { absoluteUrl } from './bundle.js'
 import { isObject, stringMap, strings, jsonText, type Json, type JsonObject } from './json.js'
-import { addressKey } from './source.js'
+import { addressKey } from './rules.js'
 
 export const PARQUET_FORMAT = 'apb2-parsed-levels-parquet'
 export const PARQUET_FORMAT_VERSION = '9'
