@@ -7,7 +7,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, normalize, resolve, sep } from 'node:path'
-import { MissingRequiredField, StaleField, UnresolvedField, type Reference } from '../src/index.js'
+import { MissingRequiredField, UnresolvedField, type Reference } from '../src/index.js'
 import type { Json } from '../src/json.js'
 
 export const BUILD = resolve(process.env.APB_CATALOG_BUILD ?? '../apb-catalog/build')
@@ -94,7 +94,6 @@ export function outcomeOf(lookup: () => Reference | null): Outcome {
     return warned ? { reference, warning: 'MissingRequiredField' } : { reference }
   } catch (error) {
     if (error instanceof UnresolvedField) return { error: 'UnresolvedField', status: error.resolution.status }
-    if (error instanceof StaleField) return { error: 'StaleField' }
     if (error instanceof MissingRequiredField) return { error: 'MissingRequiredField' }
     throw error
   } finally {

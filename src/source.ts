@@ -1,4 +1,4 @@
-// Reviewed meanings of retained APB fields, per vendor and rule variant; apb_catalog.source and
+// Reviewed meanings of retained APB fields, per vendor and software version; apb_catalog.source and
 // .vocabulary.
 
 import type { Bundle } from './bundle.js'
@@ -19,25 +19,23 @@ export const READS: Record<string, string[]> = {
 // Accepted values per qualifier; a qualifier left out accepts any value.
 export type Accepted = Record<string, string[]>
 
-// Where an entry's field lives: by name, or by the role or column-name prefix it is found by.
+// Where an entry's field lives: by name, or by the column-name prefix it is found by.
 export interface EntryReference {
   level: string
   location: string
   name: string | null
   table: string | null
-  role: string | null
   prefix: string | null
 }
 
 export interface Entry {
   entry_id: string
-  rules: string[]
+  software_version_pattern: string[]
   reference: EntryReference
   qualifiers: Record<string, string>
 }
 
 export interface Variant {
-  rule: string
   level: string
   software_version_pattern: string
 }
@@ -115,32 +113,31 @@ function cellList(text: string, separator = ';'): string[] {
 // One entry from its entries.csv row and its other qualifiers.
 function rowEntry(row: Row, qualifiers: Record<string, string>): Entry {
   const by = row.reference_by
-  if (by !== 'name' && by !== 'role' && by !== 'prefix') {
-    throw new Error(`${row.entry_id}: reference_by is name, role or prefix`)
+  if (by !== 'name' && by !== 'prefix') {
+    throw new Error(`${row.entry_id}: reference_by is name or prefix`)
   }
   return {
     entry_id: row.entry_id,
-    rules: cellList(row.rules),
+    software_version_pattern: cellList(row.software_version_pattern),
     reference: {
       level: row.level,
       location: row.location,
       name: by === 'name' ? row.reference : null,
       table: row.table === '' ? null : row.table,
-      role: by === 'role' ? row.reference : null,
       prefix: by === 'prefix' ? row.reference : null,
     },
     qualifiers: { kind: row.kind, ...qualifiers },
   }
 }
 
-// One catalogue per software of apb2's packaged rules, each reviewing every rule level of that
-// software, when the set has vendor entries; none otherwise.
+// One catalogue per software of rule_levels.csv, each reviewing every rule level of that software,
+// when the set has vendor entries; none otherwise.
 function vendorCatalogues(bundle: Bundle, name: string, entries: Map<string, Entry[]>): VendorCatalogue[] {
   if (entries.size === 0) return []
   const variants = new Map<string, Variant[]>()
   for (const found of ruleLevels(bundle)) {
     const listed = variants.get(found.software_name) ?? []
-    listed.push({ rule: found.rule, level: found.level, software_version_pattern: found.software_version_pattern })
+    listed.push({ level: found.level, software_version_pattern: found.software_version_pattern })
     variants.set(found.software_name, listed)
   }
   const unknown = [...entries.keys()].filter((software) => !variants.has(software))
@@ -192,12 +189,16 @@ function catalogueRows(bundle: Bundle, table: string): Row[] {
 
 // The entry with its reference bound to one level's column.
 export function boundEntry(entry: Entry, name: string): Entry {
-  return { ...entry, reference: { ...entry.reference, name, role: null, prefix: null } }
+  return { ...entry, reference: { ...entry.reference, name, prefix: null } }
 }
 
 // The entries a vendor catalogue reviewed for one of its rule variants.
 export function entriesFor(vendor: VendorCatalogue, variant: Variant): Entry[] {
-  return vendor.entries.filter((entry) => entry.rules.includes(variant.rule) && entry.reference.level === variant.level)
+  return vendor.entries.filter(
+    (entry) =>
+      entry.software_version_pattern.includes(variant.software_version_pattern) &&
+      entry.reference.level === variant.level,
+  )
 }
 
 // The entries a producer or annotation catalogue supplies on one level.
@@ -258,9 +259,9 @@ interface ReviewedRule {
 }
 
 // One packaged catalogue set: its vocabulary, vendor, producer and annotation catalogues and
-// requirements, indexed by software and version. Producers hold the fields APB itself writes and
-// annotations the sample-annotation fields; both apply to every level. A set made only of them
-// has no vendor catalogue and needs no review.
+// requirements, indexed by software and version. Producers hold the fields apps write after
+// conversion and annotations the sample-annotation fields; both apply to every software version. A
+// set made only of them has no vendor catalogue and needs no review.
 export class CatalogueSet {
   readonly name: string
   readonly vocabulary: SetVocabulary
@@ -293,21 +294,18 @@ export class CatalogueSet {
     const producers: ProducerCatalogue[] = []
     const annotations: AnnotationCatalogue[] = []
     for (const [source, entries] of bySource) {
-      const separator = source.indexOf(':')
-      const prefix = separator < 0 ? '' : source.slice(0, separator)
-      const named = source.slice(separator + 1)
-      if (prefix === 'producer') {
-        const run = runs.find((row) => row.producer === named)
+      const run = runs.find((row) => row.producer === source)
+      if (source.startsWith('annotation:')) {
+        annotations.push({ type: 'annotation', label: source, convention: source.slice('annotation:'.length), entries })
+      } else if (run !== undefined) {
         producers.push({
           type: 'producer',
           label: source,
-          producer: named,
-          requires: run === undefined ? [] : cellList(run.requires, '.'),
-          instruction: run === undefined ? null : run.instruction,
+          producer: source,
+          requires: cellList(run.requires, '.'),
+          instruction: run.instruction === '' ? null : run.instruction,
           entries,
         })
-      } else if (prefix === 'annotation') {
-        annotations.push({ type: 'annotation', label: source, convention: named, entries })
       } else vendors.set(source, entries)
     }
     const datapackage = bundle.json('catalogues', 'datapackage.json') as unknown as DataPackage

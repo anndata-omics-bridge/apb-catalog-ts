@@ -11,7 +11,7 @@ export {
   type Qualifiers,
   type Query,
 } from './catalog.js'
-export { MissingRequiredField, StaleField, UnresolvedField } from './conditions.js'
+export { MissingRequiredField, UnresolvedField } from './conditions.js'
 export { catalogues, rule_coverage } from './coverage.js'
 export type { Column, Layer } from './provenance.js'
 export { catalogue_table, type TableRow } from './table.js'

@@ -7,7 +7,7 @@ import type { AsyncBuffer, FileMetaData } from 'hyparquet'
 // apb2 writes Parquet with ZSTD, which hyparquet decodes only with these.
 import { compressors } from 'hyparquet-compressors'
 import { absoluteUrl } from './bundle.js'
-import { isObject, stringMap, strings, jsonText, type Json, type JsonObject } from './json.js'
+import { isObject, strings, jsonText, type Json, type JsonObject } from './json.js'
 import { addressKey } from './rules.js'
 
 export const PARQUET_FORMAT = 'apb2-parsed-levels-parquet'
@@ -113,11 +113,6 @@ export class ProvenanceLevel {
       return { software, pattern, level }
     }
     return { software: null, pattern: null, level: null }
-  }
-
-  roles(): Map<string, string> {
-    const roles = isObject(this.apb.roles) ? this.apb.roles : {}
-    return new Map(Object.entries(stringMap(roles.columns)))
   }
 
   // The address keys of the fields the level holds.

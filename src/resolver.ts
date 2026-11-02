@@ -115,12 +115,11 @@ export function resolveEntries(entries: Entry[], pending: Pending[], request: Fi
 }
 
 // How a level is bound to its set. Each view answers resolve(request) and carries its level,
-// entries, software version pattern and rule name (null unless reviewed).
+// entries and software version pattern.
 export interface LevelView {
   readonly level: string
   readonly entries: Entry[]
   readonly softwareVersionPattern: string | null
-  readonly ruleName: string | null
   resolve(request: FieldRequest): Resolution
 }
 
@@ -135,24 +134,18 @@ export class ReviewedLevel implements LevelView {
     readonly pending: Pending[] = [],
   ) {}
 
-  get ruleName(): string {
-    return this.rule.variant.rule
-  }
-
   get softwareVersionPattern(): string {
     return this.rule.variant.software_version_pattern
   }
 
   resolve(request: FieldRequest): Resolution {
-    const missing = `no reviewed ${this.rule.variant.rule} entry on ${this.level} matches`
+    const missing = `no reviewed ${this.rule.catalogue.software_name} ${this.rule.variant.software_version_pattern} entry on ${this.level} matches`
     return resolveEntries(this.entries, this.pending, request, missing)
   }
 }
 
 // A level of a set without vendor catalogues, answered by APB's own fields alone.
 export class ProducedLevel implements LevelView {
-  readonly ruleName = null
-
   constructor(
     readonly level: string,
     readonly softwareName: string,
@@ -169,8 +162,6 @@ export class ProducedLevel implements LevelView {
 // A level whose meanings cannot be established, so every answer is unknown.
 export class UnreviewedLevel implements LevelView {
   readonly entries: Entry[] = []
-  readonly ruleName = null
-
   constructor(
     readonly level: string,
     readonly softwareName: string | null,

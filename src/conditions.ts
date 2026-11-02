@@ -1,6 +1,5 @@
 // The errors apb-catalog raises in Python, with the same messages.
 
-import type { Reference } from './catalog.js'
 import type { FieldRequest, Resolution } from './resolver.js'
 import type { RequirementRow } from './source.js'
 
@@ -41,19 +40,5 @@ export class MissingRequiredField extends Error {
     )
     this.resolution = resolution
     this.row = row
-  }
-}
-
-// The result's stored rule declares the field differently from the bundle's rule.
-export class StaleField extends Error {
-  override name = 'StaleField'
-  readonly reference: Reference
-
-  constructor(reference: Reference, stored: string, current: string) {
-    super(
-      `${reference.name}: this result reads ${stored}, the catalog's rule ${current}; ` +
-        'reconvert the result, or serve a newer bundle if it is newer',
-    )
-    this.reference = reference
   }
 }

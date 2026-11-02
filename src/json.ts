@@ -51,17 +51,6 @@ export function jsonText(value: unknown): string {
   return JSON.stringify(value ?? null)
 }
 
-// A string map from a JSON object of strings; an empty one when the object is absent.
-export function stringMap(value: Json | undefined): Record<string, string> {
-  const found: Record<string, string> = {}
-  if (isObject(value)) {
-    for (const [name, text] of Object.entries(value)) {
-      if (typeof text === 'string') found[name] = text
-    }
-  }
-  return found
-}
-
 export function strings(value: Json | undefined): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }

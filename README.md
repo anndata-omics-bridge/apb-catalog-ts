@@ -84,13 +84,13 @@ const pep = await confidence.layer('peptidoform_ion', { kind: 'pep' })
 // { runs: string[], features: string[], values: Float64Array[] }, one array per run
 ```
 
-`var()` and `obs()` return one array: a `Float64Array` for numbers, otherwise strings or booleans. A field the result's stored rule declares differently from the catalog throws `StaleField`.
+`var()` and `obs()` return one array: a `Float64Array` for numbers, otherwise strings or booleans.
 
 ## The bundle
 
 apb-catalog builds two bundles at each release:
 
-- Bundle: apb2's parse rules and the reviewed catalogue sets; lookups read only this
+- Bundle: the reviewed catalogue sets and the levels apb2 converts for each software version; lookups read only this
 - Test bundle: synthetic results, with apb-catalog's answers on them; the tests check that TypeScript gives the same answers
 
 How an app gets the latest bundle:

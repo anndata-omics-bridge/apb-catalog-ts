@@ -1,8 +1,8 @@
 // Look up APB fields by meaning, so callers never name vendor columns; apb_catalog.catalog.
 
 import type { Bundle } from './bundle.js'
-import { MissingRequiredField, StaleField } from './conditions.js'
-import { jsonEqual, jsonText, sortC, unique, type Json, type JsonObject } from './json.js'
+import { MissingRequiredField } from './conditions.js'
+import { sortC, unique } from './json.js'
 import { Provenance, type Column, type Layer, type ProvenanceLevel } from './provenance.js'
 import {
   AbsentLevel,
@@ -14,7 +14,7 @@ import {
   type Pending,
   type Resolution,
 } from './resolver.js'
-import { ruleDeclarations, ruleField, ruleLevels, ruleRetained, ruleRoles, rulesMatching } from './rules.js'
+import { ruleLevels, rulesMatching } from './rules.js'
 import {
   annotationApplies,
   boundEntry,
@@ -33,7 +33,7 @@ import {
   type ProducerCatalogue,
   type RequirementRow,
 } from './source.js'
-import { ANY_RULE, entryRow, records, setColumns, type TableRow } from './table.js'
+import { entryRow, records, setColumns, type TableRow } from './table.js'
 
 // Qualifiers a request means unless it says otherwise, where the set declares them.
 const DEFAULTS: Record<string, string> = { stage: 'identification' }
@@ -83,14 +83,10 @@ function accepted(qualifiers: Qualifiers): Accepted {
   )
 }
 
-// The entry bound to the level's column: by name, by the role's column or by prefix. A prefix
-// matching several columns binds to each, so the lookup reports them as ambiguous.
-function bindEntry(entry: Entry, roles: Map<string, string>, obsColumns: string[]): Entry[] {
+// The entry bound to the level's column: by name or by prefix. A prefix matching several columns
+// binds to each, so the lookup reports them as ambiguous.
+function bindEntry(entry: Entry, obsColumns: string[]): Entry[] {
   const reference = entry.reference
-  if (reference.role !== null) {
-    const column = roles.get(reference.role)
-    return column === undefined ? [] : [boundEntry(entry, column)]
-  }
   if (reference.prefix !== null) {
     const prefix = reference.prefix.toLowerCase()
     return obsColumns.filter((column) => column.toLowerCase().startsWith(prefix)).map((column) => boundEntry(entry, column))
@@ -100,15 +96,14 @@ function bindEntry(entry: Entry, roles: Map<string, string>, obsColumns: string[
 
 interface LevelInputs {
   retained: Set<string>
-  roles: Map<string, string>
   obsColumns: string[]
   ran: (producer: ProducerCatalogue) => boolean
   annotations: AnnotationCatalogue[]
 }
 
-// Bind one level to its set: the reviewed vendor entries, then APB's own fields. Only entries whose
-// field the level holds answer; a producer that has not run leaves its entries pending. A set with
-// vendor catalogues answers only for a reviewed rule.
+// Bind one level to its set: the reviewed vendor entries, then the apps' and annotations'. Only
+// entries whose field the level holds answer; an app that has not run leaves its entries pending. A
+// set with vendor catalogues answers only for a reviewed software version.
 function levelView(
   name: string,
   software: string | null,
@@ -135,7 +130,7 @@ function levelView(
   }
   const produced = producerEntries(set.producers, ruleLevel, inputs)
   const annotated = inputs.annotations.flatMap((annotation) =>
-    boundEntries(annotation, ruleLevel, inputs.roles, inputs.obsColumns),
+    boundEntries(annotation, ruleLevel, inputs.obsColumns),
   )
   entries = [...entries, ...produced.entries, ...annotated]
   if (reviewed !== null) return new ReviewedLevel(name, reviewed, entries, produced.pending)
@@ -147,16 +142,23 @@ function heldEntries(entries: Entry[], retained: Set<string>): Entry[] {
   return entries.filter((entry) => retained.has(referenceKey(entry.reference)))
 }
 
-function boundEntries(
-  source: ProducerCatalogue | AnnotationCatalogue,
-  ruleLevel: string,
-  roles: Map<string, string>,
-  obsColumns: string[],
-): Entry[] {
-  return entriesOn(source, ruleLevel).flatMap((entry) => bindEntry(entry, roles, obsColumns))
+function boundEntries(source: ProducerCatalogue | AnnotationCatalogue, ruleLevel: string, obsColumns: string[]): Entry[] {
+  return entriesOn(source, ruleLevel).flatMap((entry) => bindEntry(entry, obsColumns))
 }
 
-// The producers' entries the level holds, and the entries of producers that have not run.
+// Every field the set's entries name on one level: without data, the catalogue says what a level
+// holds.
+function catalogued(set: CatalogueSet, level: string): Set<string> {
+  return new Set(
+    set
+      .sources()
+      .flatMap((source) => source.entries)
+      .filter((entry) => entry.reference.level === level && entry.reference.name !== null)
+      .map((entry) => referenceKey(entry.reference)),
+  )
+}
+
+// The apps' entries the level holds, and the entries of apps that have not run.
 function producerEntries(
   producers: ProducerCatalogue[],
   ruleLevel: string,
@@ -165,7 +167,7 @@ function producerEntries(
   const entries: Entry[] = []
   const pending: Pending[] = []
   for (const producer of producers) {
-    const offered = boundEntries(producer, ruleLevel, inputs.roles, inputs.obsColumns)
+    const offered = boundEntries(producer, ruleLevel, inputs.obsColumns)
     if (inputs.ran(producer)) {
       entries.push(...heldEntries(offered, inputs.retained))
     } else {
@@ -245,16 +247,8 @@ class Lookups {
 
   rows(view: LevelView, entries: Entry[]): TableRow[] {
     const labels = sourceLabels(this.set)
-    const rule = view.ruleName ?? ANY_RULE
     return entries.map((entry) =>
-      entryRow(
-        this.name,
-        this.set,
-        labels.get(entry.entry_id) ?? '',
-        view.softwareVersionPattern,
-        entry.rules.length > 0 ? rule : ANY_RULE,
-        entry,
-      ),
+      entryRow(this.name, this.set, labels.get(entry.entry_id) ?? '', view.softwareVersionPattern, entry),
     )
   }
 
@@ -267,9 +261,10 @@ function present(rows: TableRow[]): TableRow[] {
   return rows.map((row) => ({ ...row, present: true, constant: null }))
 }
 
-// Which column one software version reports for each meaning, from the rules alone, without data.
-// The rule of the software whose version pattern admits the version decides which fields each level
-// has. Lookups that several fields answer, or that an unreviewed level cannot, throw UnresolvedField.
+// Which column one software version reports for each meaning, from the catalogue alone, without
+// data. The rule levels whose version pattern admits the version give the levels; the set's entries
+// for that pattern give each level's fields. Lookups that several fields answer, or that an
+// unreviewed level cannot, throw UnresolvedField.
 export class Catalog {
   readonly #lookups: Lookups
 
@@ -289,8 +284,7 @@ export class Catalog {
       views.set(
         found.level,
         levelView(found.level, found.software_name, found.software_version_pattern, found.level, set, {
-          retained: ruleRetained(bundle, found.rule, found.level),
-          roles: ruleRoles(bundle, found.rule, found.level),
+          retained: catalogued(set, found.level),
           obsColumns: [],
           ran: (producer) => producer.requires.length === 0,
           annotations: [],
@@ -341,15 +335,13 @@ export class Catalog {
   }
 }
 
-// The lookup behind a DataCatalog's data calls, for the tests: the reference, after the staleness check.
+// The lookup behind a DataCatalog's data calls, for the tests: the reference.
 export let findIn: (catalog: DataCatalog, level: string, location: string, query: Query) => Reference | null
 
 // What one result's fields mean to one consumer. Starts from the result's provenance JSON and
-// fetches a Parquet file only when its data is asked for. A lookup of a field the result's stored
-// rule declares differently from the catalog's rule throws StaleField; ambiguous or unreviewed
-// answers throw UnresolvedField.
+// fetches a Parquet file only when its data is asked for. Ambiguous or unreviewed answers throw
+// UnresolvedField.
 export class DataCatalog {
-  readonly #bundle: Bundle
   readonly #provenance: Provenance
   readonly #lookups: Lookups
 
@@ -367,14 +359,12 @@ export class DataCatalog {
         name,
         levelView(name, version.software, version.pattern, version.level, set, {
           retained: level.retained(),
-          roles: level.roles(),
           obsColumns: level.obs.columns,
           ran: (producer) => producerRan(producer, provenance.metadata),
           annotations,
         }),
       )
     }
-    this.#bundle = bundle
     this.#provenance = provenance
     this.#lookups = new Lookups(catalog, set, views, options.enforce ?? null)
   }
@@ -434,26 +424,8 @@ export class DataCatalog {
 
   #find(level: string, location: string, query: Query): Reference | null {
     const found = this.#lookups.find(level, location, accepted(query))
-    if (found === null) return null
-    const view = this.#lookups.views.get(level)
-    if (view !== undefined) checkCurrent(this.#bundle, view, this.#provenance.level(level), found)
-    return referenceOf(found)
+    return found === null ? null : referenceOf(found)
   }
-}
-
-// Throw StaleField when the level's stored rule declares the field differently from the bundle's rule.
-function checkCurrent(bundle: Bundle, view: LevelView, level: ProvenanceLevel, reference: EntryReference): void {
-  const rule = view.ruleName
-  const storedRule = level.storedRule()
-  if (rule === null || storedRule === null) return
-  const stored = ruleField(storedRule, reference.location, reference.name)
-  const current = ruleDeclarations(bundle, rule, String(storedRule.quantification_level)).map((declared) =>
-    ruleField(declared, reference.location, reference.name),
-  )
-  if (current.some((declared) => jsonEqual(stored, declared))) return
-  if (stored === null && current.every((declared) => declared === null)) return
-  const declared = current.find((found) => found !== null) ?? null
-  throw new StaleField(referenceOf(reference), sourceText(stored), sourceText(declared))
 }
 
 // The rows of one level's fields: those it holds, and for a reviewed level those it lacks, with the
@@ -470,14 +442,4 @@ function levelFields(lookups: Lookups, view: LevelView, level: ProvenanceLevel):
     constant: leftOut.get(referenceKey((absent[index] as Entry).reference)) ?? null,
   }))
   return [...rows, ...absentRows]
-}
-
-function sourceText(declared: JsonObject | null): string {
-  if (declared === null) return 'no such field'
-  let source: Json | undefined = declared.source
-  if (source === undefined || source === null || source === '') source = declared.inputs
-  if (source !== undefined && source !== null && !(Array.isArray(source) && source.length === 0)) {
-    return jsonText(source)
-  }
-  return jsonText(Object.fromEntries(sortC(Object.keys(declared)).map((name) => [name, declared[name]])))
 }

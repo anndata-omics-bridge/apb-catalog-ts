@@ -1,20 +1,16 @@
 // Which catalogued fields every rule supplies, and whether each level meets its set; apb_catalog.coverage.
 
 import type { Bundle } from './bundle.js'
-import type { Json } from './json.js'
 import { sortC } from './json.js'
-import { ruleLevels, ruleRetained, ruleRoles, ruleVarInputs, versionLabel } from './rules.js'
+import { ruleLevels, versionLabel } from './rules.js'
 import {
-  boundEntry,
   catalogueSet,
   entriesFor,
   entriesOn,
-  referenceKey,
   rowDescribes,
   setNames,
   type CatalogueSet,
   type Entry,
-  type EntryReference,
   type ProducerCatalogue,
   type RequirementRow,
   type Variant,
@@ -24,7 +20,7 @@ import { records, type TableRow } from './table.js'
 const COVERAGE_COLUMNS = [
   'software',
   'version',
-  'rule',
+  'software_version_pattern',
   'level',
   'kind',
   'qualifiers',
@@ -34,7 +30,6 @@ const COVERAGE_COLUMNS = [
   'location',
   'table',
   'column',
-  'inputs',
   'needs',
   'verdict',
 ]
@@ -57,7 +52,8 @@ export function catalogues(bundle: Bundle): TableRow[] {
 }
 
 // Check every rule against one catalogue set: one row per catalogued or required field of each rule
-// level the set reviews; a set without vendor catalogues is checked against every rule level. A set
+// level the set reviews; a set without vendor catalogues is checked against every rule level of the
+// bundle's rule_levels.csv. A set
 // with requirements judges each level: `fail` when a MUST field is unsupported, `warn` when a SHOULD
 // or MAY field is, `pass` otherwise.
 export function rule_coverage(bundle: Bundle, catalogue: string): TableRow[] {
@@ -70,7 +66,7 @@ export function rule_coverage(bundle: Bundle, catalogue: string): TableRow[] {
   }
   if (!set.needsReview) {
     for (const found of ruleLevels(bundle)) {
-      const variant = { rule: found.rule, level: found.level, software_version_pattern: found.software_version_pattern }
+      const variant = { level: found.level, software_version_pattern: found.software_version_pattern }
       rows.push(...variantRows(bundle, set, found.software_name, variant, []))
     }
   }
@@ -91,7 +87,7 @@ function variantRows(
 ): TableRow[] {
   const found: Found[] = [
     ...vendorEntries.map((entry) => ({ entry, producer: null })),
-    ...producerFields(bundle, set.producers, variant),
+    ...producerFields(set.producers, variant),
   ]
   const required = set.requirements.filter((row) => row.level === variant.level)
   const missing = required.filter((row) => !found.some((item) => rowDescribes(row, item.entry)))
@@ -99,13 +95,13 @@ function variantRows(
   const base: TableRow = {
     software,
     version: versionLabel(bundle, variant.software_version_pattern),
-    rule: variant.rule,
+    software_version_pattern: variant.software_version_pattern,
     level: variant.level,
     verdict,
   }
   const rows: TableRow[] = found.map((item) => ({
     ...base,
-    ...coverageField(bundle, item.entry, item.producer, variant),
+    ...coverageField(item.entry, item.producer),
     requirement: rowRequirement(required, item.entry),
   }))
   for (const row of missing) {
@@ -120,16 +116,9 @@ function variantRows(
   return requiredOrder(rows.length > 0 ? rows : [base], required)
 }
 
-// The producer fields that count on a rule level: where conversion keeps their column, or once their
-// producer runs.
-function producerFields(bundle: Bundle, producers: ProducerCatalogue[], variant: Variant): Found[] {
-  const roles = ruleRoles(bundle, variant.rule, variant.level)
-  return producers.flatMap((producer) =>
-    entriesOn(producer, variant.level)
-      .flatMap((entry) => coverageBound(entry, roles))
-      .filter((entry) => producer.requires.length > 0 || variantRetains(bundle, variant, entry.reference))
-      .map((entry) => ({ entry, producer })),
-  )
+// The apps' fields on a rule level: every entry of an app counts, with what to run.
+function producerFields(producers: ProducerCatalogue[], variant: Variant): Found[] {
+  return producers.flatMap((producer) => entriesOn(producer, variant.level).map((entry) => ({ entry, producer })))
 }
 
 // Rows in the order of the requirements their kind answers, vendor fields before producer fields;
@@ -142,18 +131,6 @@ function requiredOrder(rows: TableRow[], required: RequirementRow[]): TableRow[]
   }
   const produced = (row: TableRow): number => (row.producer === undefined || row.producer === null ? 0 : 1)
   return [...rows].sort((left, right) => rank(left) - rank(right) || produced(left) - produced(right))
-}
-
-// A producer entry bound to the rule's column: its role's column when it names a role.
-function coverageBound(entry: Entry, roles: Map<string, string>): Entry[] {
-  const role = entry.reference.role
-  if (role === null) return [entry]
-  const column = roles.get(role)
-  return column === undefined ? [] : [boundEntry(entry, column)]
-}
-
-function variantRetains(bundle: Bundle, variant: Variant, reference: EntryReference): boolean {
-  return ruleRetained(bundle, variant.rule, variant.level).has(referenceKey(reference))
 }
 
 function rowRequirement(required: RequirementRow[], entry: Entry): string | null {
@@ -171,16 +148,12 @@ function coverageVerdict(requirements: string[]): string {
   return severities.length > 0 ? 'warn' : 'pass'
 }
 
-function coverageField(bundle: Bundle, entry: Entry, producer: ProducerCatalogue | null, variant: Variant): TableRow {
+function coverageField(entry: Entry, producer: ProducerCatalogue | null): TableRow {
   const reference = entry.reference
   const others: Record<string, string> = {}
   for (const [name, value] of Object.entries(entry.qualifiers)) {
     if (name !== 'kind' && name !== 'origin') others[name] = value
   }
-  const inputs: Json =
-    reference.location === 'var' && variantRetains(bundle, variant, reference)
-      ? ruleVarInputs(bundle, variant.rule, variant.level, reference.name)
-      : []
   return {
     kind: entry.qualifiers.kind ?? null,
     qualifiers: qualifierPairs(others),
@@ -189,7 +162,6 @@ function coverageField(bundle: Bundle, entry: Entry, producer: ProducerCatalogue
     location: reference.location,
     table: reference.table,
     column: reference.name,
-    inputs,
     needs: producer === null ? null : producer.instruction,
   }
 }
