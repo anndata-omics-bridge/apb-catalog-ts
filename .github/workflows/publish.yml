@@ -38,8 +38,11 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v10.2.0
 
+      # Python 3.13, as apb-catalog's own CI: the newest CPython has no h5py wheel yet.
       - name: Build apb-catalog's bundles
         working-directory: apb-catalog
+        env:
+          UV_PYTHON: "3.13"
         run: |
           uv python install
           uv sync --group dev
