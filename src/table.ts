@@ -16,7 +16,12 @@ function fieldName(entry: Entry): string {
   return `prefix:${reference.prefix}`
 }
 
-// One table row: where the entry's field lives, its qualifiers and its requirement.
+// The set's qualifiers besides kind, in vocabulary order.
+function otherQualifiers(set: CatalogueSet): string[] {
+  return Object.keys(set.vocabulary.qualifiers).filter((name) => name !== 'kind')
+}
+
+// One table row: where the entry's field lives, its key and qualifiers, its requirement.
 export function entryRow(
   setName: string,
   set: CatalogueSet,
@@ -33,8 +38,10 @@ export function entryRow(
     location: reference.location,
     table: reference.table,
     name: fieldName(entry),
+    key: entry.key,
+    kind: entry.qualifiers.kind ?? null,
   }
-  for (const qualifier of Object.keys(set.vocabulary.qualifiers)) {
+  for (const qualifier of otherQualifiers(set)) {
     row[`qualifier.${qualifier}`] = entry.qualifiers[qualifier] ?? null
   }
   row.requirement = set.requirements.find((requirement) => rowDescribes(requirement, entry))?.requirement ?? null
@@ -60,7 +67,9 @@ function setRows(setName: string, set: CatalogueSet): TableRow[] {
 export function setColumns(set: CatalogueSet): string[] {
   return [
     ...KEY_COLUMNS,
-    ...Object.keys(set.vocabulary.qualifiers).map((name) => `qualifier.${name}`),
+    'key',
+    'kind',
+    ...otherQualifiers(set).map((name) => `qualifier.${name}`),
     'requirement',
     'entry_id',
   ]
@@ -83,5 +92,5 @@ export function catalogue_table(bundle: Bundle, catalogue: string | null = null)
     for (const column of setColumns(set)) columns.add(column)
   }
   const qualifiers = [...columns].filter((column) => column.startsWith('qualifier.'))
-  return records(rows, [...KEY_COLUMNS, ...qualifiers, 'requirement', 'entry_id'])
+  return records(rows, [...KEY_COLUMNS, 'key', 'kind', ...qualifiers, 'requirement', 'entry_id'])
 }

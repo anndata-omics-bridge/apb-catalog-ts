@@ -3,10 +3,9 @@
 
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
-import { findIn } from '../src/catalog.js'
-import { Bundle, DataCatalog, type Query } from '../src/index.js'
+import { Bundle, DataCatalog } from '../src/index.js'
 import { Mismatches, type DataCatalogCase } from './cases.js'
-import { BUNDLE, kindsOutcome, outcomeOf, readCases, serve, unpackResults, type Served } from './support.js'
+import { BUNDLE, keysOutcome, named, outcomeOf, readCases, serve, slotOf, unpackResults, type Served } from './support.js'
 
 let served: Served
 let bundle: Bundle
@@ -25,22 +24,23 @@ test('DataCatalog answers every test-bundle case as apb-catalog does', async (co
     const provenance = served.url(`results/${found.result}.parquet/manifest.json`)
     const options = { enforce: found.enforce }
     if (found.error !== undefined) {
-      await assert.rejects(DataCatalog.load(bundle, provenance, found.catalogue, options), Error, label)
+      await assert.rejects(DataCatalog.load(bundle, provenance, [found.catalogue], options), Error, label)
       continue
     }
-    const catalog = await DataCatalog.load(bundle, provenance, found.catalogue, options)
+    const catalog = await DataCatalog.load(bundle, provenance, [found.catalogue], options)
     for (const request of found.requests ?? []) {
+      const slot = slotOf(catalog.levels, request.level, request.location)
       mismatches.compare(
-        outcomeOf(() => findIn(catalog, request.level, request.location, request.qualifiers as Query)),
+        outcomeOf(() => named(slot, request.key, request.qualifiers)),
         request.outcome,
-        `${label} ${request.level} ${request.location} ${JSON.stringify(request.qualifiers)}`,
+        `${label} ${request.level} ${request.location} ${request.key} ${JSON.stringify(request.qualifiers)}`,
       )
     }
-    for (const kinds of found.kinds ?? []) {
+    for (const keys of found.keys ?? []) {
       mismatches.compare(
-        kindsOutcome(() => catalog.kinds(kinds.level, kinds.location)),
-        kinds.outcome,
-        `${label} kinds ${kinds.level} ${kinds.location}`,
+        keysOutcome(() => slotOf(catalog.levels, keys.level, keys.location).keys()),
+        keys.outcome,
+        `${label} keys ${keys.level} ${keys.location}`,
       )
     }
     if (found.fields !== undefined && found.fields !== null) {

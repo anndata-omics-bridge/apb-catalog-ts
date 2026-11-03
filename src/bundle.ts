@@ -5,7 +5,7 @@ import { parseCsv, type Table } from './csv.js'
 import { isObject, strings, type Json, type JsonObject } from './json.js'
 
 // The bundle format this package reads.
-export const BUNDLE_FORMAT = 2
+export const BUNDLE_FORMAT = 3
 
 // A URL as given, or relative to the page.
 export function absoluteUrl(url: string | URL): URL {

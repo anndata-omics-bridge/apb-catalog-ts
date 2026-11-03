@@ -7,7 +7,8 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, normalize, resolve, sep } from 'node:path'
-import { MissingRequiredField, UnresolvedField, type Reference } from '../src/index.js'
+import { KeyError } from '../src/conditions.js'
+import { MissingRequiredField, UnresolvedField } from '../src/index.js'
 import type { Json } from '../src/json.js'
 
 export const BUILD = resolve(process.env.APB_CATALOG_BUILD ?? '../apb-catalog/build')
@@ -79,8 +80,38 @@ export async function serve(roots: Record<string, string>): Promise<Served> {
 
 export type Outcome = Record<string, Json>
 
-// What one lookup gives: the reference, or the class of the error it throws, and whether it warned.
-export function outcomeOf(lookup: () => Reference | null): Outcome {
+// A slot of a level, as the recorded cases ask it.
+interface NamedSlot {
+  name(key: string, qualifiers: Record<string, string>): string
+  keys(): string[]
+}
+
+interface SlotLevel {
+  layers: NamedSlot
+  var: NamedSlot
+  obs: NamedSlot
+}
+
+// The slot of a catalog's level that a case names.
+export function slotOf(levels: ReadonlyMap<string, SlotLevel>, level: string, location: 'layers' | 'var' | 'obs'): NamedSlot {
+  const found = levels.get(level)
+  if (found === undefined) throw new Error(`the catalog has no ${level} level`)
+  return found[location]
+}
+
+// The name of the field one request reads, null for none: KeyError reads as null, as the recording
+// does.
+export function named(slot: NamedSlot, key: string, qualifiers: Record<string, string>): string | null {
+  try {
+    return slot.name(key, qualifiers)
+  } catch (error) {
+    if (error instanceof KeyError) return null
+    throw error
+  }
+}
+
+// What one lookup gives: the field's name, or the class of the error it throws, and whether it warned.
+export function outcomeOf(lookup: () => string | null): Outcome {
   const warn = console.warn
   let warned = false
   console.warn = (warning: unknown) => {
@@ -88,10 +119,8 @@ export function outcomeOf(lookup: () => Reference | null): Outcome {
     else warn(warning)
   }
   try {
-    const found = lookup()
-    const reference =
-      found === null ? null : { level: found.level, location: found.location, table: found.table, name: found.name }
-    return warned ? { reference, warning: 'MissingRequiredField' } : { reference }
+    const name = lookup()
+    return warned ? { name, warning: 'MissingRequiredField' } : { name }
   } catch (error) {
     if (error instanceof UnresolvedField) return { error: 'UnresolvedField', status: error.resolution.status }
     if (error instanceof MissingRequiredField) return { error: 'MissingRequiredField' }
@@ -101,9 +130,9 @@ export function outcomeOf(lookup: () => Reference | null): Outcome {
   }
 }
 
-export function kindsOutcome(kinds: () => string[]): Outcome {
+export function keysOutcome(keys: () => string[]): Outcome {
   try {
-    return { kinds: kinds() }
+    return { keys: keys() }
   } catch (error) {
     if (error instanceof UnresolvedField) return { error: 'UnresolvedField', status: error.resolution.status }
     throw error

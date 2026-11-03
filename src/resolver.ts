@@ -4,17 +4,21 @@ import { UnresolvedField } from './conditions.js'
 import { sortC, unique } from './json.js'
 import { READS, UNKNOWN, type Accepted, type Entry, type EntryReference, type ReviewedRule } from './source.js'
 
-// A consumer's question: one level and location, constrained by accepted qualifier values.
-// Qualifiers left out accept any value; accepting "unknown" admits entries that leave it unknown.
+// A consumer's question: one level and location, constrained by accepted qualifier values. `key`
+// names the access key asked for; `qualifiers` hold what it stands for, its kind and fixed values,
+// plus any further qualifiers asked. Qualifiers left out accept any value; accepting "unknown"
+// admits entries that leave it unknown.
 export interface FieldRequest {
   level: string
   location: string | null
+  key: string | null
   qualifiers: Accepted
 }
 
 export interface Candidate {
   entry_id: string
   reference: EntryReference
+  key: string
   qualifiers: Record<string, string>
   undecided: string[]
 }
@@ -47,7 +51,7 @@ function requestUndecided(request: FieldRequest, qualifiers: Record<string, stri
 }
 
 function newCandidate(entry: Entry, undecided: string[] = []): Candidate {
-  return { entry_id: entry.entry_id, reference: entry.reference, qualifiers: entry.qualifiers, undecided }
+  return { entry_id: entry.entry_id, reference: entry.reference, key: entry.key, qualifiers: entry.qualifiers, undecided }
 }
 
 // The answer to one request; only a resolved one carries a reference. `requirement` records the
@@ -74,10 +78,10 @@ export class Resolution {
     this.reasons = reasons
   }
 
-  // The distinct values the candidates carry; an unreviewed level throws UnresolvedField.
-  offered(qualifier: string): string[] {
+  // The distinct keys the candidates have; an unreviewed level throws UnresolvedField.
+  offered(): string[] {
     if (this.status === 'unknown' && this.candidates.length === 0) throw new UnresolvedField(this)
-    return sortC(unique(this.candidates.map((candidate) => candidate.qualifiers[qualifier] as string)))
+    return sortC(unique(this.candidates.map((candidate) => candidate.key)))
   }
 
   // The reference, null when the field is missing; ambiguous and unknown answers throw UnresolvedField.

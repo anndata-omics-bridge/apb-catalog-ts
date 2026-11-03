@@ -215,6 +215,12 @@ export class Provenance {
     return columnOf(await this.#column(this.#path(level, null, entry.file), name))
   }
 
+  // The row names of a level's obs or var: its key column, or its key columns joined by "|".
+  axisNames(levelName: string, axis: 'obs' | 'var'): Promise<string[]> {
+    const level = this.level(levelName)
+    return this.#axisNames(level, axis === 'obs' ? level.obs : level.var)
+  }
+
   // One column of a varm table of a level.
   async varmColumn(levelName: string, table: string, name: string): Promise<Column> {
     const level = this.level(levelName)

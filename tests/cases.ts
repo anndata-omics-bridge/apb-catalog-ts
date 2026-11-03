@@ -6,13 +6,14 @@ import { jsonEqual } from '../src/json.js'
 export interface RequestCase {
   level: string
   location: 'layers' | 'var' | 'obs'
+  key: string
   qualifiers: Record<string, string>
   outcome: JsonObject
 }
 
-export interface KindsCase {
+export interface KeysCase {
   level: string
-  location: string
+  location: 'layers' | 'var' | 'obs'
   outcome: JsonObject
 }
 
@@ -22,7 +23,7 @@ export interface CatalogCase {
   version: string
   error?: string
   requests?: RequestCase[]
-  kinds?: KindsCase[]
+  keys?: KeysCase[]
   fields: Json[]
 }
 
@@ -32,7 +33,7 @@ export interface DataCatalogCase {
   enforce: 'MUST' | 'SHOULD' | null
   error?: string
   requests?: RequestCase[]
-  kinds?: KindsCase[]
+  keys?: KeysCase[]
   fields?: Json[] | null
 }
 

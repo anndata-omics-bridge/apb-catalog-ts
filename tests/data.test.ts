@@ -1,5 +1,5 @@
-// The data a DataCatalog hands back: one array per run for a layer, one array for a var or obs
-// column, checked against the Parquet files read directly.
+// The data a DataCatalog's levels hand back: one array per run for a layer, one array for a var or
+// obs column, checked against the Parquet files read directly.
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -8,6 +8,7 @@ import { after, before, test } from 'node:test'
 import { parquetReadObjects, type AsyncBuffer } from 'hyparquet'
 import { compressors } from 'hyparquet-compressors'
 import { Bundle, DataCatalog } from '../src/index.js'
+import type { Level } from '../src/levels.js'
 import { BUNDLE, serve, unpackResults, type Served } from './support.js'
 
 let served: Served
@@ -32,13 +33,17 @@ async function rows(result: string, file: string): Promise<Array<Record<string, 
   return parquetReadObjects({ file: buffer, compressors })
 }
 
-function catalog(result: string, set: string): Promise<DataCatalog> {
-  return DataCatalog.load(bundle, served.url(`results/${result}.parquet/manifest.json`), set)
+// The peptidoform_ion level of a result, read through the named sets.
+async function ion(result: string, ...sets: string[]): Promise<Level> {
+  const catalog = await DataCatalog.load(bundle, served.url(`results/${result}.parquet/manifest.json`), sets)
+  const level = catalog.levels.get('peptidoform_ion')
+  assert.ok(level !== undefined)
+  return level
 }
 
-test('layer() gives one array per run, named by the obs and var key columns', async () => {
+test('a layer gives one array per run, named by the obs and var key columns', async () => {
   const result = 'maxquant_wide-peptidoform_ion'
-  const pep = await (await catalog(result, 'confidence')).layer('peptidoform_ion', { kind: 'pep' })
+  const pep = await (await ion(result, 'confidence')).layers.get('pep')
   assert.ok(pep !== null)
   const stored = await rows(result, 'layers/PEP.parquet')
   const obs = await rows(result, 'obs.parquet')
@@ -52,24 +57,33 @@ test('layer() gives one array per run, named by the obs and var key columns', as
   }
 })
 
-test('var() gives one value per feature, as strings or booleans', async () => {
+test('a var column gives one value per feature, as strings or booleans', async () => {
   const result = 'maxquant_wide-peptidoform_ion'
-  const apb = await catalog(result, 'apb')
+  const level = await ion(result, 'apb')
   const vars = await rows(result, 'var.parquet')
-  assert.deepEqual(await apb.var('peptidoform_ion', { kind: 'peptidoform_ion' }), vars.map((row) => row.ProForma_ion))
-  assert.deepEqual(await apb.var('peptidoform_ion', { kind: 'decoy' }), vars.map((row) => row.apb_Decoy))
+  assert.deepEqual(await level.var.get('peptidoform_ion'), vars.map((row) => row.ProForma_ion))
+  assert.deepEqual(await level.var.get('decoy'), vars.map((row) => row.apb_Decoy))
 })
 
-test('obs() gives one value per run', async () => {
+test('an obs column gives one value per run', async () => {
   const result = 'edge-prolfquapp'
   const obs = await rows(result, 'obs.parquet')
-  const found = await (await catalog(result, 'apb')).obs('peptidoform_ion', { kind: 'condition' })
-  assert.deepEqual(found, obs.map((row) => row.group))
+  assert.deepEqual(await (await ion(result, 'apb')).obs.get('group'), obs.map((row) => row.group))
 })
 
 test('a missing field gives null and fetches nothing', async () => {
-  const confidence = await catalog('maxquant_wide-peptidoform_ion', 'confidence')
+  const level = await ion('maxquant_wide-peptidoform_ion', 'confidence')
   served.requests.length = 0
-  assert.equal(await confidence.layer('peptidoform_ion', { kind: 'q_value' }), null)
+  assert.equal(await level.layers.get('q_value'), null)
   assert.equal(served.requests.length, 0)
+})
+
+test('X is the primary layer, its runs and features the obs and var names', async () => {
+  const result = 'maxquant_wide-peptidoform_ion'
+  const level = await ion(result)
+  const x = await level.X()
+  const stored = await rows(result, 'layers/Intensity.parquet')
+  assert.deepEqual(x.runs, await level.obs_names())
+  assert.deepEqual(x.features, await level.var_names())
+  assert.deepEqual([...(x.values[0] as Float64Array)], stored.map((row) => Number(row.obs_0)))
 })

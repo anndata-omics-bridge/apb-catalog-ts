@@ -4,7 +4,7 @@
 import type { Bundle } from './bundle.js'
 import type { Row } from './csv.js'
 import { isObject, sortC, type JsonObject } from './json.js'
-import { addressKey, ruleLevels } from './rules.js'
+import { addressKey, entryAddress, entryPatterns, ruleLevels, type EntryAddress } from './rules.js'
 
 export const UNKNOWN = 'unknown'
 
@@ -32,7 +32,17 @@ export interface Entry {
   entry_id: string
   software_version_pattern: string[]
   reference: EntryReference
+  key: string
   qualifiers: Record<string, string>
+}
+
+// One access key of a set: the name callers ask by, standing for a kind and the qualifier values it
+// fixes; a qualifier it does not fix stays open.
+export interface Key {
+  key: string
+  kind: string
+  fixed: Record<string, string>
+  psi_ms: string[]
 }
 
 export interface Variant {
@@ -72,11 +82,11 @@ export interface SetVocabulary {
   qualifiers: Record<string, { definition: string; values: Record<string, string> }>
 }
 
+// How strongly a consumer needs one meaning on one level: a field location and a key.
 export interface RequirementRow {
   level: string
   location: string
-  kind: string
-  qualifiers: Record<string, string>
+  key: string
   requirement: string
 }
 
@@ -110,28 +120,69 @@ function cellList(text: string, separator = ';'): string[] {
   return text === '' ? [] : text.split(separator)
 }
 
-// One entry from its entries.csv row and its other qualifiers.
-function rowEntry(row: Row, qualifiers: Record<string, string>): Entry {
-  const by = row.reference_by
-  if (by !== 'name' && by !== 'prefix') {
-    throw new Error(`${row.entry_id}: reference_by is name or prefix`)
+// The name=value pairs of a `qualifiers` cell, separated by `;`; none when the cell is empty.
+function qualifierPairs(owner: string, cell: string): Record<string, string> {
+  const found: Record<string, string> = {}
+  for (const pair of cellList(cell)) {
+    const at = pair.indexOf('=')
+    if (at < 1) throw new Error(`${owner}: qualifier '${pair}' is not name=value`)
+    found[pair.slice(0, at)] = pair.slice(at + 1)
+  }
+  return found
+}
+
+// One key from its keys.csv row: the qualifier values it fixes; a qualifier it does not name stays
+// open.
+function rowKey(row: Row): Key {
+  return { key: row.key, kind: row.kind, fixed: qualifierPairs(row.key, row.qualifiers ?? ''), psi_ms: cellList(row.psi_ms) }
+}
+
+// Whether an entry with these qualifiers has this key.
+function keyDescribes(key: Key, qualifiers: Record<string, string>): boolean {
+  return qualifiers.kind === key.kind && Object.entries(key.fixed).every(([name, value]) => qualifiers[name] === value)
+}
+
+// Where an entry's field lives, from its id: a layer by its key, an obs or var column by its column,
+// a varm column by table and column; an obs column ending in `*` is a prefix.
+function addressReference(entryId: string, address: EntryAddress): EntryReference {
+  const { level, attribute: location, key, column } = address
+  const fail = (reason: string): never => {
+    throw new Error(`${entryId}: ${reason}`)
+  }
+  if (location === 'layers') {
+    if (key === '-' || column !== '-') fail('a layer names its key and no column')
+    return { level, location, name: key, table: null, prefix: null }
+  }
+  if (column === '-') fail(`${location} names a column`)
+  if (location === 'varm') {
+    if (key === '-') fail('a varm column names its table as key')
+    return { level, location, name: column, table: key, prefix: null }
+  }
+  if (key !== '-') fail(`${location} has no key`)
+  if (!column.endsWith('*')) return { level, location, name: column, table: null, prefix: null }
+  if (location !== 'obs') fail('a prefix names an obs column')
+  return { level, location, name: null, table: null, prefix: column.slice(0, -1) }
+}
+
+// One entry from its entries.csv row, its other qualifiers and the key they match: exactly one.
+function rowEntry(bundle: Bundle, row: Row, address: EntryAddress, qualifiers: Record<string, string>, keys: Key[]): Entry {
+  const described = { kind: row.kind, ...qualifiers }
+  const matching = keys.filter((key) => keyDescribes(key, described)).map((key) => key.key)
+  const [key] = matching
+  if (matching.length !== 1 || key === undefined) {
+    throw new Error(`${row.entry_id}: matches the keys ${matching.join(', ')}, not exactly one`)
   }
   return {
     entry_id: row.entry_id,
-    software_version_pattern: cellList(row.software_version_pattern),
-    reference: {
-      level: row.level,
-      location: row.location,
-      name: by === 'name' ? row.reference : null,
-      table: row.table === '' ? null : row.table,
-      prefix: by === 'prefix' ? row.reference : null,
-    },
-    qualifiers: { kind: row.kind, ...qualifiers },
+    software_version_pattern: entryPatterns(bundle, address),
+    reference: addressReference(row.entry_id, address),
+    key,
+    qualifiers: described,
   }
 }
 
-// One catalogue per software of rule_levels.csv, each reviewing every rule level of that software,
-// when the set has vendor entries; none otherwise.
+// One catalogue per software of versions.csv, each reviewing every level the bundle's entries name
+// for its versions, when the set has vendor entries; none otherwise.
 function vendorCatalogues(bundle: Bundle, name: string, entries: Map<string, Entry[]>): VendorCatalogue[] {
   if (entries.size === 0) return []
   const variants = new Map<string, Variant[]>()
@@ -187,9 +238,40 @@ function catalogueRows(bundle: Bundle, table: string): Row[] {
   })
 }
 
-// The entry with its reference bound to one level's column.
+// The level field of an entry id that names its levels in entry_levels.csv.
+const LEVEL_TEMPLATE = '<level>'
+
+// An entry is its id and kind: one id holds two kinds where one column has two meanings.
+function entryName(row: Row): string {
+  return `${row.entry_id}\x1f${row.kind}`
+}
+
+// One entries.csv row per level it holds on: a <level> entry once per level entry_levels.csv lists
+// for it, its id naming that level, which the levels map then no longer holds; any other row as is.
+function levelRows(row: Row, levels: Map<string, string[]>): Row[] {
+  const fields = row.entry_id.split('/')
+  if (fields[2] !== LEVEL_TEMPLATE) return [row]
+  const listed = levels.get(entryName(row))
+  if (listed === undefined) throw new Error(`${row.entry_id}: entry_levels.csv lists no level for it`)
+  levels.delete(entryName(row))
+  return listed.map((level) => ({ ...row, entry_id: fields.map((field, index) => (index === 2 ? level : field)).join('/') }))
+}
+
+// An entry's qualifiers besides its kind, from its `qualifiers` cell of name=value pairs separated
+// by `;`: exactly the qualifiers its set's vocabulary declares.
+function entryQualifiers(vocabulary: SetVocabulary, row: Row): Record<string, string> {
+  const found = qualifierPairs(row.entry_id, row.qualifiers ?? '')
+  const declared = sortC(Object.keys(vocabulary.qualifiers).filter((name) => name !== 'kind'))
+  if (sortC(Object.keys(found)).join(',') !== declared.join(',')) {
+    throw new Error(`${row.entry_id}: names the qualifiers ${sortC(Object.keys(found)).join(', ')}, its set declares ${declared.join(', ')}`)
+  }
+  return found
+}
+
+// The entry with its reference bound to one level's column, its id naming that column.
 export function boundEntry(entry: Entry, name: string): Entry {
-  return { ...entry, reference: { ...entry.reference, name, prefix: null } }
+  const entry_id = [...entry.entry_id.split('/').slice(0, 5), name].join('/')
+  return { ...entry, entry_id, reference: { ...entry.reference, name, prefix: null } }
 }
 
 // The entries a vendor catalogue reviewed for one of its rule variants.
@@ -201,9 +283,23 @@ export function entriesFor(vendor: VendorCatalogue, variant: Variant): Entry[] {
   )
 }
 
-// The entries a producer or annotation catalogue supplies on one level.
+// This entry on one level: itself, an entry of every level (`*`) taking that level in its reference
+// and id, or null on another level.
+function entryOn(entry: Entry, level: string): Entry | null {
+  if (entry.reference.level === level) return entry
+  if (entry.reference.level !== '*') return null
+  const [source, version, , ...rest] = entry.entry_id.split('/')
+  return { ...entry, entry_id: [source, version, level, ...rest].join('/'), reference: { ...entry.reference, level } }
+}
+
+// The entries a producer or annotation catalogue supplies on one level, those of every level included.
 export function entriesOn(source: Source, level: string): Entry[] {
-  return source.entries.filter((entry) => entry.reference.level === level)
+  return source.entries.flatMap((entry) => entryOn(entry, level) ?? [])
+}
+
+// Who an entry comes from: the software, an app, or `annotation:<convention>`, the first field of its id.
+export function entrySource(entry: Entry): string {
+  return entry.entry_id.split('/')[0] as string
 }
 
 // Whether a result's metadata records a producer's run.
@@ -229,28 +325,16 @@ export function annotationApplies(annotation: AnnotationCatalogue, metadata: Jso
 
 // Whether an entry on a requirement row's level answers the row.
 export function rowDescribes(row: RequirementRow, entry: Entry): boolean {
-  const qualifiers = entry.qualifiers
   return (
     entry.reference.level === row.level &&
     (READS[row.location] ?? []).includes(entry.reference.location) &&
-    qualifiers.kind === row.kind &&
-    Object.entries(row.qualifiers).every(([name, value]) => qualifiers[name] === value)
+    entry.key === row.key
   )
 }
 
-// The single accepted value of a qualifier, or undefined when it accepts none or several.
-function only(accepted: string[] | undefined): string | undefined {
-  return accepted?.length === 1 ? accepted[0] : undefined
-}
-
-// Whether a request on one level and location asks for a requirement row's meaning.
-export function rowAsked(row: RequirementRow, level: string, location: string, qualifiers: Accepted): boolean {
-  return (
-    level === row.level &&
-    location === row.location &&
-    only(qualifiers.kind) === row.kind &&
-    Object.entries(row.qualifiers).every(([name, value]) => only(qualifiers[name]) === value)
-  )
+// The qualifier values a request for a key accepts: its kind and the values it fixes.
+export function keyPredicate(key: Key): Accepted {
+  return { kind: [key.kind], ...Object.fromEntries(Object.entries(key.fixed).map(([name, value]) => [name, [value]])) }
 }
 
 interface ReviewedRule {
@@ -270,6 +354,7 @@ export class CatalogueSet {
   readonly catalogues: VendorCatalogue[]
   readonly producers: ProducerCatalogue[]
   readonly annotations: AnnotationCatalogue[]
+  readonly keys: Key[]
   readonly requirements: RequirementRow[]
   readonly #byVersion = new Map<string, ReviewedRule>()
 
@@ -281,14 +366,21 @@ export class CatalogueSet {
     if (heads.length !== 1 || head === undefined) {
       throw new Error(`unknown catalogue '${name}'; packaged: ${setNames(bundle).join(', ')}`)
     }
-    const qualifiers = new Map<string, Record<string, string>>()
-    for (const row of rows('entry_qualifiers')) {
-      qualifiers.set(row.entry_id, { ...qualifiers.get(row.entry_id), [row.qualifier]: row.value })
+    const setVocab = setVocabulary(vocabulary, head)
+    const keys = rows('keys').map(rowKey)
+    const levels = new Map<string, string[]>()
+    for (const row of rows('entry_levels')) {
+      levels.set(entryName(row), [...(levels.get(entryName(row)) ?? []), row.level])
     }
     const bySource = new Map<string, Entry[]>()
     for (const row of rows('entries')) {
-      bySource.set(row.source, [...(bySource.get(row.source) ?? []), rowEntry(row, qualifiers.get(row.entry_id) ?? {})])
+      for (const concrete of levelRows(row, levels)) {
+        const address = entryAddress(concrete.entry_id)
+        const entry = rowEntry(bundle, concrete, address, entryQualifiers(setVocab, concrete), keys)
+        bySource.set(address.source, [...(bySource.get(address.source) ?? []), entry])
+      }
     }
+    if (levels.size > 0) throw new Error(`${name}: entry_levels.csv lists levels of no <level> entry: ${[...levels.keys()].join(', ')}`)
     const runs = rows('producers')
     const vendors = new Map<string, Entry[]>()
     const producers: ProducerCatalogue[] = []
@@ -310,19 +402,20 @@ export class CatalogueSet {
     }
     const datapackage = bundle.json('catalogues', 'datapackage.json') as unknown as DataPackage
     this.name = name
-    this.vocabulary = setVocabulary(vocabulary, head)
+    this.vocabulary = setVocab
     this.vocabulary_version = datapackage.version
     this.description = { purpose: head.purpose, used_by: cellList(head.used_by) }
     this.catalogues = vendorCatalogues(bundle, name, vendors)
     this.producers = producers
     this.annotations = annotations
+    this.keys = keys
     this.requirements = rows('requirements').map((row) => ({
       level: row.level,
       location: row.location,
-      kind: row.kind,
-      qualifiers: {},
+      key: row.key,
       requirement: row.requirement,
     }))
+    for (const row of this.requirements) this.key(row.key)
     for (const catalogue of this.catalogues) {
       for (const variant of catalogue.variants) {
         const key = [catalogue.software_name, variant.software_version_pattern, variant.level].join('\x1f')
@@ -341,9 +434,23 @@ export class CatalogueSet {
     return this.#byVersion.get([software, pattern, level].join('\x1f')) ?? null
   }
 
-  // The requirement row a request asks for, or null.
-  requirementFor(level: string, location: string, qualifiers: Accepted): RequirementRow | null {
-    return this.requirements.find((row) => rowAsked(row, level, location, qualifiers)) ?? null
+  // One key of the set, by name.
+  key(name: string): Key {
+    const found = this.keys.find((key) => key.key === name)
+    if (found === undefined) {
+      throw new Error(`unknown key '${name}'; keys: ${sortC(this.keys.map((key) => key.key)).join(', ')}`)
+    }
+    return found
+  }
+
+  // Whether the set has this key.
+  hasKey(name: string): boolean {
+    return this.keys.some((key) => key.key === name)
+  }
+
+  // The requirement row a request on one level and location asks for with its key, or null.
+  requirementFor(level: string, location: string, key: string | null): RequirementRow | null {
+    return this.requirements.find((row) => row.level === level && row.location === location && row.key === key) ?? null
   }
 
   // Whether a level answers only once a vendor catalogue reviewed its rule.

@@ -22,6 +22,7 @@ const COVERAGE_COLUMNS = [
   'version',
   'software_version_pattern',
   'level',
+  'key',
   'kind',
   'qualifiers',
   'origin',
@@ -52,9 +53,8 @@ export function catalogues(bundle: Bundle): TableRow[] {
 }
 
 // Check every rule against one catalogue set: one row per catalogued or required field of each rule
-// level the set reviews; a set without vendor catalogues is checked against every rule level of the
-// bundle's rule_levels.csv. A set
-// with requirements judges each level: `fail` when a MUST field is unsupported, `warn` when a SHOULD
+// level the set reviews; a set without vendor catalogues is checked against every level the bundle's
+// entries name for each version of versions.csv. A set with requirements judges each level: `fail` when a MUST field is unsupported, `warn` when a SHOULD
 // or MAY field is, `pass` otherwise.
 export function rule_coverage(bundle: Bundle, catalogue: string): TableRow[] {
   const set = catalogueSet(bundle, catalogue)
@@ -105,10 +105,12 @@ function variantRows(
     requirement: rowRequirement(required, item.entry),
   }))
   for (const row of missing) {
+    const key = set.key(row.key)
     rows.push({
       ...base,
-      kind: row.kind,
-      qualifiers: qualifierPairs(row.qualifiers),
+      key: row.key,
+      kind: key.kind,
+      qualifiers: qualifierPairs(key.fixed),
       location: row.location,
       requirement: row.requirement,
     })
@@ -121,12 +123,12 @@ function producerFields(producers: ProducerCatalogue[], variant: Variant): Found
   return producers.flatMap((producer) => entriesOn(producer, variant.level).map((entry) => ({ entry, producer })))
 }
 
-// Rows in the order of the requirements their kind answers, vendor fields before producer fields;
+// Rows in the order of the requirements their key answers, vendor fields before producer fields;
 // stable otherwise.
 function requiredOrder(rows: TableRow[], required: RequirementRow[]): TableRow[] {
-  const kinds = required.map((row) => row.kind)
+  const keys = required.map((row) => row.key)
   const rank = (row: TableRow): number => {
-    const index = typeof row.kind === 'string' ? kinds.indexOf(row.kind) : -1
+    const index = typeof row.key === 'string' ? keys.indexOf(row.key) : -1
     return index === -1 ? required.length : index
   }
   const produced = (row: TableRow): number => (row.producer === undefined || row.producer === null ? 0 : 1)
@@ -155,6 +157,7 @@ function coverageField(entry: Entry, producer: ProducerCatalogue | null): TableR
     if (name !== 'kind' && name !== 'origin') others[name] = value
   }
   return {
+    key: entry.key,
     kind: entry.qualifiers.kind ?? null,
     qualifiers: qualifierPairs(others),
     origin: entry.qualifiers.origin ?? null,

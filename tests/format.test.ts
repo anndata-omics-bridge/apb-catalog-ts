@@ -23,7 +23,7 @@ before(async () => {
   writeFileSync(join(newer, 'bundle', 'manifest.json'), JSON.stringify({ ...manifest, bundle_format: 99 }))
   older = mkdtempSync(join(tmpdir(), 'apb-catalog-older-'))
   cpSync(BUNDLE, join(older, 'bundle'), { recursive: true })
-  writeFileSync(join(older, 'bundle', 'manifest.json'), JSON.stringify({ ...manifest, bundle_format: 1 }))
+  writeFileSync(join(older, 'bundle', 'manifest.json'), JSON.stringify({ ...manifest, bundle_format: 2 }))
   const results = unpackResults()
   const provenance = readJson(join(results, RESULT, 'manifest.json'))
   assert.ok(isObject(provenance))
@@ -38,13 +38,13 @@ test('a bundle of a newer format is refused', async () => {
 })
 
 test('a bundle of an older format is refused', async () => {
-  await assert.rejects(Bundle.load(served.url('older/manifest.json')), /has format 1; this package reads format 2/)
+  await assert.rejects(Bundle.load(served.url('older/manifest.json')), /has format 2; this package reads format 3/)
 })
 
 test('a result of another Parquet format version is refused', async () => {
   const bundle = await Bundle.load(served.url('bundle/manifest.json'))
   await assert.rejects(
-    DataCatalog.load(bundle, served.url(`results/${RESULT}/manifest.json`), 'confidence'),
+    DataCatalog.load(bundle, served.url(`results/${RESULT}/manifest.json`), ['confidence']),
     /apb2-parsed-levels-parquet version 8; @anndata-omics-bridge\/apb-catalog reads apb2-parsed-levels-parquet version 9/,
   )
 })

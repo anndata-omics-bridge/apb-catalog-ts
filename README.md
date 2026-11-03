@@ -40,8 +40,8 @@ This is apb-catalog's Python API in TypeScript, with the same classes and method
 | Call | Answers |
 | --- | --- |
 | `Bundle.load(url)` | The catalog bundle, from the URL of its `manifest.json` |
-| `new Catalog(bundle, software, version, set)` | From the rules alone, without data |
-| `await DataCatalog.load(bundle, provenanceUrl, set)` | On one result, and returns the data |
+| `new Catalog(bundle, software, version, set)` | From the rules alone, without data: `levels`, each slot holding names |
+| `await DataCatalog.load(bundle, provenanceUrl, sets)` | On one result, the sets composed with `apb`: `levels` with AnnData's slots, returning the data |
 | `catalogues(bundle)`, `rule_coverage(bundle, set)`, `catalogue_table(bundle)` | The sets, how each rule covers a set, every entry as a table |
 
 Two things differ from Python and R, because a browser fetches everything over HTTP:
@@ -69,22 +69,36 @@ Ask the rules which column a software version reports:
 import { Bundle, Catalog, DataCatalog } from '@anndata-omics-bridge/apb-catalog'
 
 const bundle = await Bundle.load('catalog/apb-catalog-bundle/manifest.json')
-const diann = new Catalog(bundle, 'DIA-NN', '2.2.0', 'abundance')
-diann.kinds('peptidoform_ion', 'layers')
-// ['intensity', 'ms1_intensity']
-diann.layer('peptidoform_ion', { kind: 'intensity', normalization: 'none' })
-// <Reference peptidoform_ion layers: Precursor_Quantity>
+const ion = new Catalog(bundle, 'DIA-NN', '2.2.0', 'abundance').levels.get('peptidoform_ion')
+ion?.layers.keys()
+// ['intensity', 'ms1_intensity', 'normalized_intensity', 'normalized_ms1_intensity']
+ion?.layers.get('intensity')
+// 'Precursor_Quantity'
+ion?.layers.get('maxlfq')
+// null: DIA-NN 2.2.0 reports no MaxLFQ for precursors
 ```
 
 Get the data of a result:
 
 ```ts
-const confidence = await DataCatalog.load(bundle, 'results/result.parquet/manifest.json', 'confidence')
-const pep = await confidence.layer('peptidoform_ion', { kind: 'pep' })
-// { runs: string[], features: string[], values: Float64Array[] }, one array per run
+const catalog = await DataCatalog.load(bundle, 'results/result.parquet/manifest.json', ['confidence'])
+const level = catalog.levels.get('peptidoform_ion')
+const pep = await level?.layers.get('pep')
+// { runs: string[], features: string[], values: Float64Array[] }, one array per run; null when absent
+level?.layers.name('pep')
+// 'PEP', the field get reads; throws where get gives null
 ```
 
-`var()` and `obs()` return one array: a `Float64Array` for numbers, otherwise strings or booleans.
+Each slot, `layers`, `var` and `obs`, answers as Python's does, with `get` in place of `[...]`:
+
+- A name is a key first, then the level's own field of that name; `get` gives null when it is neither
+- `get(key, { unit: 'minute' })` narrows a key by a qualifier it leaves open
+- `keys()` and `has(key)` know keys only
+- `var.select(keys)` and `obs.select(keys)` read every column the keys name, as `var[[...]]` does
+- `var` also reads varm tables; such a field is named `table/column`
+- A `var` or `obs` column is one array: a `Float64Array` for numbers, otherwise strings or booleans
+- `X()` is the primary layer, and `obs_names()` and `var_names()` the run and feature names
+- A lookup throws `UnresolvedField` at once when the catalogue cannot decide; data arrives as a promise
 
 ## The bundle
 

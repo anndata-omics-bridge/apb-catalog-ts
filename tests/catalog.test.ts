@@ -2,9 +2,9 @@
 
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
-import { Bundle, Catalog, type Query } from '../src/index.js'
-import { Mismatches, type CatalogCase, type RequestCase } from './cases.js'
-import { BUNDLE, kindsOutcome, outcomeOf, readCases, serve, type Served } from './support.js'
+import { Bundle, Catalog } from '../src/index.js'
+import { Mismatches, type CatalogCase } from './cases.js'
+import { BUNDLE, keysOutcome, named, outcomeOf, readCases, serve, slotOf, type Served } from './support.js'
 
 let served: Served
 let bundle: Bundle
@@ -16,13 +16,6 @@ before(async () => {
 
 after(() => served.close())
 
-function lookup(catalog: Catalog, request: RequestCase) {
-  const query = request.qualifiers as Query
-  if (request.location === 'layers') return catalog.layer(request.level, query)
-  if (request.location === 'var') return catalog.var(request.level, query)
-  return catalog.obs(request.level, query)
-}
-
 test('Catalog answers every test-bundle case as apb-catalog does', (context) => {
   const mismatches = new Mismatches()
   for (const found of readCases('catalog.json') as unknown as CatalogCase[]) {
@@ -33,18 +26,18 @@ test('Catalog answers every test-bundle case as apb-catalog does', (context) => 
     }
     const catalog = new Catalog(bundle, found.software, found.version, found.catalogue)
     for (const request of found.requests ?? []) {
-      const where = `${label} ${request.level} ${JSON.stringify(request.qualifiers)}`
+      const slot = slotOf(catalog.levels, request.level, request.location)
       mismatches.compare(
-        outcomeOf(() => lookup(catalog, request)),
+        outcomeOf(() => named(slot, request.key, request.qualifiers)),
         request.outcome,
-        where,
+        `${label} ${request.level} ${request.location} ${request.key} ${JSON.stringify(request.qualifiers)}`,
       )
     }
-    for (const kinds of found.kinds ?? []) {
+    for (const keys of found.keys ?? []) {
       mismatches.compare(
-        kindsOutcome(() => catalog.kinds(kinds.level, kinds.location)),
-        kinds.outcome,
-        `${label} kinds ${kinds.level} ${kinds.location}`,
+        keysOutcome(() => slotOf(catalog.levels, keys.level, keys.location).keys()),
+        keys.outcome,
+        `${label} keys ${keys.level} ${keys.location}`,
       )
     }
     mismatches.compareRows(catalog.fields(), found.fields, `${label} fields`)

@@ -24,14 +24,17 @@ function files(): Set<string> {
 
 test('lookups read only the provenance JSON; data calls fetch their own files once', async () => {
   served.requests.length = 0
-  const catalog = await DataCatalog.load(bundle, served.url(`${RESULT}/manifest.json`), 'confidence')
+  const catalog = await DataCatalog.load(bundle, served.url(`${RESULT}/manifest.json`), ['confidence'])
   assert.deepEqual(files(), new Set([`/${RESULT}/manifest.json`]))
 
-  catalog.kinds('peptidoform_ion', 'layers')
+  const level = catalog.levels.get('peptidoform_ion')
+  assert.ok(level !== undefined)
+  level.layers.keys()
+  level.layers.name('pep')
   catalog.fields()
   assert.equal(served.requests.length, 1)
 
-  const pep = await catalog.layer('peptidoform_ion', { kind: 'pep' })
+  const pep = await level.layers.get('pep')
   assert.ok(pep !== null)
   assert.deepEqual(
     files(),
@@ -46,6 +49,6 @@ test('lookups read only the provenance JSON; data calls fetch their own files on
   assert.ok(parquet.length > 0 && parquet.every((request) => request.range !== null), 'Parquet is read by range')
 
   const fetched = served.requests.length
-  await catalog.layer('peptidoform_ion', { kind: 'pep' })
+  await level.layers.get('pep')
   assert.equal(served.requests.length, fetched, 'a repeated data call fetches nothing')
 })
