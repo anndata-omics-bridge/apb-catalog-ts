@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-# The bundles apb-catalog builds; CI downloads them from apb-catalog's latest release into build/.
+# The bundles apb-catalog's make bundle writes; CI builds them from apb-catalog's main beside this repo.
 APB_CATALOG_BUILD ?= ../apb-catalog/build
 
 .PHONY: help install typecheck test check build docs docs-serve clean
