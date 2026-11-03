@@ -2,6 +2,8 @@
 
 apb-catalog's API in TypeScript: look up the fields of an [APB](https://github.com/anndata-omics-bridge/apb2) result by meaning, such as a PEP or an unnormalized intensity, in the browser, without naming vendor columns.
 
+Documentation: [anndata-omics-bridge.github.io/apb-catalog-ts](https://anndata-omics-bridge.github.io/apb-catalog-ts/), with [Get started](https://anndata-omics-bridge.github.io/apb-catalog-ts/getting-started) and the [API](https://anndata-omics-bridge.github.io/apb-catalog-ts/api).
+
 > **New API.** This package is new, and its API may still change between releases. Feedback is very welcome: open an [issue](https://github.com/anndata-omics-bridge/apb-catalog-ts/issues) with what you need, what surprised you, or what broke.
 
 ## APB

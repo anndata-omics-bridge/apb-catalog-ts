@@ -120,21 +120,13 @@ function cellList(text: string, separator = ';'): string[] {
   return text === '' ? [] : text.split(separator)
 }
 
-// The name=value pairs of a `qualifiers` cell, separated by `;`; none when the cell is empty.
-function qualifierPairs(owner: string, cell: string): Record<string, string> {
-  const found: Record<string, string> = {}
-  for (const pair of cellList(cell)) {
-    const at = pair.indexOf('=')
-    if (at < 1) throw new Error(`${owner}: qualifier '${pair}' is not name=value`)
-    found[pair.slice(0, at)] = pair.slice(at + 1)
-  }
-  return found
-}
+// The columns of keys.csv besides those of the qualifiers a key fixes.
+const KEY_COLUMNS = ['set', 'key', 'kind', 'psi_ms']
 
-// One key from its keys.csv row: the qualifier values it fixes; a qualifier it does not name stays
-// open.
+// One key from its keys.csv row: an empty qualifier column leaves that qualifier open.
 function rowKey(row: Row): Key {
-  return { key: row.key, kind: row.kind, fixed: qualifierPairs(row.key, row.qualifiers ?? ''), psi_ms: cellList(row.psi_ms) }
+  const fixed = Object.fromEntries(Object.entries(row).filter(([name, value]) => !KEY_COLUMNS.includes(name) && value !== ''))
+  return { key: row.key, kind: row.kind, fixed, psi_ms: cellList(row.psi_ms) }
 }
 
 // Whether an entry with these qualifiers has this key.
@@ -238,34 +230,9 @@ function catalogueRows(bundle: Bundle, table: string): Row[] {
   })
 }
 
-// The level field of an entry id that names its levels in entry_levels.csv.
-const LEVEL_TEMPLATE = '<level>'
-
 // An entry is its id and kind: one id holds two kinds where one column has two meanings.
 function entryName(row: Row): string {
   return `${row.entry_id}\x1f${row.kind}`
-}
-
-// One entries.csv row per level it holds on: a <level> entry once per level entry_levels.csv lists
-// for it, its id naming that level, which the levels map then no longer holds; any other row as is.
-function levelRows(row: Row, levels: Map<string, string[]>): Row[] {
-  const fields = row.entry_id.split('/')
-  if (fields[2] !== LEVEL_TEMPLATE) return [row]
-  const listed = levels.get(entryName(row))
-  if (listed === undefined) throw new Error(`${row.entry_id}: entry_levels.csv lists no level for it`)
-  levels.delete(entryName(row))
-  return listed.map((level) => ({ ...row, entry_id: fields.map((field, index) => (index === 2 ? level : field)).join('/') }))
-}
-
-// An entry's qualifiers besides its kind, from its `qualifiers` cell of name=value pairs separated
-// by `;`: exactly the qualifiers its set's vocabulary declares.
-function entryQualifiers(vocabulary: SetVocabulary, row: Row): Record<string, string> {
-  const found = qualifierPairs(row.entry_id, row.qualifiers ?? '')
-  const declared = sortC(Object.keys(vocabulary.qualifiers).filter((name) => name !== 'kind'))
-  if (sortC(Object.keys(found)).join(',') !== declared.join(',')) {
-    throw new Error(`${row.entry_id}: names the qualifiers ${sortC(Object.keys(found)).join(', ')}, its set declares ${declared.join(', ')}`)
-  }
-  return found
 }
 
 // The entry with its reference bound to one level's column, its id naming that column.
@@ -368,19 +335,21 @@ export class CatalogueSet {
     }
     const setVocab = setVocabulary(vocabulary, head)
     const keys = rows('keys').map(rowKey)
-    const levels = new Map<string, string[]>()
-    for (const row of rows('entry_levels')) {
-      levels.set(entryName(row), [...(levels.get(entryName(row)) ?? []), row.level])
+    const qualifiers = new Map<string, Record<string, string>>()
+    for (const row of rows('entry_qualifiers')) {
+      qualifiers.set(entryName(row), { ...qualifiers.get(entryName(row)), [row.qualifier]: row.value })
     }
     const bySource = new Map<string, Entry[]>()
     for (const row of rows('entries')) {
-      for (const concrete of levelRows(row, levels)) {
-        const address = entryAddress(concrete.entry_id)
-        const entry = rowEntry(bundle, concrete, address, entryQualifiers(setVocab, concrete), keys)
-        bySource.set(address.source, [...(bySource.get(address.source) ?? []), entry])
-      }
+      const address = entryAddress(row.entry_id)
+      const entry = rowEntry(bundle, row, address, qualifiers.get(entryName(row)) ?? {}, keys)
+      qualifiers.delete(entryName(row))
+      bySource.set(address.source, [...(bySource.get(address.source) ?? []), entry])
     }
-    if (levels.size > 0) throw new Error(`${name}: entry_levels.csv lists levels of no <level> entry: ${[...levels.keys()].join(', ')}`)
+    if (qualifiers.size > 0) {
+      const stray = sortC([...qualifiers.keys()].map((found) => found.replace('\x1f', ' ')))
+      throw new Error(`${name}: entry_qualifiers.csv qualifies no entry ${stray.join(', ')}`)
+    }
     const runs = rows('producers')
     const vendors = new Map<string, Entry[]>()
     const producers: ProducerCatalogue[] = []

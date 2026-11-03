@@ -12,14 +12,18 @@ export function absoluteUrl(url: string | URL): URL {
   return url instanceof URL ? url : new URL(url, globalThis.location?.href)
 }
 
+// A bundle is republished under the same URLs, so every file is revalidated with the server: a
+// browser's heuristic cache would otherwise mix files of two bundles.
+const REVALIDATE: RequestInit = { cache: 'no-cache' }
+
 export async function fetchJson(url: URL): Promise<Json> {
-  const response = await fetch(url)
+  const response = await fetch(url, REVALIDATE)
   if (!response.ok) throw new Error(`fetching ${url.href} failed: ${response.status} ${response.statusText}`)
   return (await response.json()) as Json
 }
 
 async function fetchText(url: URL): Promise<string> {
-  const response = await fetch(url)
+  const response = await fetch(url, REVALIDATE)
   if (!response.ok) throw new Error(`fetching ${url.href} failed: ${response.status} ${response.statusText}`)
   return await response.text()
 }

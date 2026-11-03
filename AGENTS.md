@@ -11,6 +11,7 @@ apb-catalog's API in TypeScript for the web apps, published as `@anndata-omics-b
 - `tests/catalog.test.ts`, `tests/data-catalog.test.ts` and `tests/tables.test.ts` run every answer the test bundle records; a change that makes TypeScript answer differently from Python is a bug here, or a change that belongs in apb-catalog first
 - Each source file mirrors one apb-catalog module and one apbCatalogR file: `source.ts`, `rules.ts`, `resolver.ts`, `catalog.ts`, `levels.ts`, `coverage.ts`, `table.ts`; `provenance.ts` replaces the R Parquet reader
 - `src/index.ts` is the only public module
+- `docs/` is the VitePress site published to GitHub Pages; every output it shows was run on the test bundle's synthetic results
 
 ## Conventions
 
@@ -28,3 +29,5 @@ As apb-export-ui's `web/` and APB Studio's `viewer/`: TypeScript 7, strict; test
 | Tests | `make test` |
 | Gate | `make check` |
 | Build `dist/` | `make build` |
+| Docs site into `docs/.vitepress/dist` | `make docs` |
+| Docs, served while editing | `make docs-serve` |
