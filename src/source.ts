@@ -120,12 +120,9 @@ function cellList(text: string, separator = ';'): string[] {
   return text === '' ? [] : text.split(separator)
 }
 
-// The columns of keys.csv besides those of the qualifiers a key fixes.
-const KEY_COLUMNS = ['set', 'key', 'kind', 'psi_ms']
-
-// One key from its keys.csv row: an empty qualifier column leaves that qualifier open.
-function rowKey(row: Row): Key {
-  const fixed = Object.fromEntries(Object.entries(row).filter(([name, value]) => !KEY_COLUMNS.includes(name) && value !== ''))
+// One key from its keys.csv row and the values its key_qualifiers.csv rows fix; a qualifier
+// without a row stays open.
+function rowKey(row: Row, fixed: Record<string, string>): Key {
   return { key: row.key, kind: row.kind, fixed, psi_ms: cellList(row.psi_ms) }
 }
 
@@ -334,7 +331,11 @@ export class CatalogueSet {
       throw new Error(`unknown catalogue '${name}'; packaged: ${setNames(bundle).join(', ')}`)
     }
     const setVocab = setVocabulary(vocabulary, head)
-    const keys = rows('keys').map(rowKey)
+    const fixed = new Map<string, Record<string, string>>()
+    for (const row of rows('key_qualifiers')) {
+      fixed.set(row.key, { ...fixed.get(row.key), [row.qualifier]: row.value })
+    }
+    const keys = rows('keys').map((row) => rowKey(row, fixed.get(row.key) ?? {}))
     const qualifiers = new Map<string, Record<string, string>>()
     for (const row of rows('entry_qualifiers')) {
       qualifiers.set(entryName(row), { ...qualifiers.get(entryName(row)), [row.qualifier]: row.value })
