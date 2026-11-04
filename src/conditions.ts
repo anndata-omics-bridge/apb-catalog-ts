@@ -3,11 +3,10 @@
 import type { FieldRequest, Resolution } from './resolver.js'
 import type { RequirementRow } from './source.js'
 
-// The key asked for and the qualifiers the request accepts, for messages.
+// The key asked for, its kind and the qualifiers the request accepts, for messages.
 function wanted(request: FieldRequest): string {
-  const accepted = Object.entries(request.qualifiers)
-    .map(([name, values]) => `${name}=${values.join('|')}`)
-    .join(', ')
+  const kind = request.kind === null ? [] : [`kind=${request.kind}`]
+  const accepted = [...kind, ...Object.entries(request.qualifiers).map(([name, values]) => `${name}=${values.join('|')}`)].join(', ')
   return request.key === null ? accepted : `${request.key} (${accepted})`
 }
 

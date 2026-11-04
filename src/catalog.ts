@@ -24,7 +24,7 @@ import {
   entriesFor,
   entriesOn,
   entrySource,
-  keyPredicate,
+  keyAccepted,
   pendingReason,
   producerRan,
   referenceKey,
@@ -171,15 +171,16 @@ class Lookups {
   // The request for a key, or for every key when `key` is null, narrowed by further qualifiers.
   // Throws when the set has no such key, or a qualifier names the kind or a value the key fixes.
   request(level: string, location: Location, key: string | null, qualifiers: Qualifiers): FieldRequest {
-    const fixed: Accepted = key === null ? {} : keyPredicate(this.set.key(key))
+    const found = key === null ? null : this.set.key(key)
+    const fixed: Accepted = found === null ? {} : keyAccepted(found)
     const clashing = sortC(Object.keys(qualifiers).filter((name) => name === 'kind' || name in fixed))
     if (clashing.length > 0) throw new Error(`ask by key; ${key ?? 'the lookup'} fixes ${clashing.join(', ')}`)
     const asked = Object.fromEntries(Object.entries(qualifiers).map(([name, value]) => [name, [value]]))
-    return { level, location, key, qualifiers: { ...fixed, ...asked } }
+    return { level, location, key, kind: found === null ? null : found.kind, qualifiers: { ...fixed, ...asked } }
   }
 
   answer(request: FieldRequest): Resolution {
-    checkPredicate(this.set.vocabulary, request.qualifiers)
+    checkPredicate(this.set.vocabulary, request.kind, request.qualifiers)
     const view = this.views.get(request.level) ?? new AbsentLevel(request.level)
     return view.resolve(request)
   }

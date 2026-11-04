@@ -33,6 +33,7 @@ export interface Entry {
   software_version_pattern: string[]
   reference: EntryReference
   key: string
+  kind: string
   qualifiers: Record<string, string>
 }
 
@@ -76,9 +77,12 @@ export interface AnnotationCatalogue {
 
 export type Source = VendorCatalogue | ProducerCatalogue | AnnotationCatalogue
 
-// What one set's entries mean: its qualifiers, each with its admitted values, "unknown" among them.
+// What one set's entries mean: its kinds, and the qualifiers that refine a kind, each with its
+// admitted values; "unknown" is among the kinds and among every qualifier's values.
 export interface SetVocabulary {
   definition: string
+  kind_definition: string
+  kinds: Record<string, string>
   qualifiers: Record<string, { definition: string; values: Record<string, string> }>
 }
 
@@ -90,8 +94,12 @@ export interface RequirementRow {
   requirement: string
 }
 
-// A request accepts any subset of the qualifiers, each with admitted values; every qualifier admits "unknown".
-export function checkPredicate(vocabulary: SetVocabulary, qualifiers: Accepted): void {
+// A request accepts one of the set's kinds, or none, and any subset of the qualifiers, each with
+// admitted values; the kinds and every qualifier admit "unknown".
+export function checkPredicate(vocabulary: SetVocabulary, kind: string | null, qualifiers: Accepted): void {
+  if (kind !== null && !(kind in vocabulary.kinds)) {
+    throw new Error(`the set does not admit the kind '${kind}'; kinds: ${sortC(Object.keys(vocabulary.kinds)).join(', ')}`)
+  }
   for (const [name, accepted] of Object.entries(qualifiers)) {
     if (accepted.length === 0) throw new Error(`qualifier '${name}' accepts no value`)
     for (const value of accepted) checkValue(vocabulary, name, value)
@@ -126,9 +134,9 @@ function rowKey(row: Row, fixed: Record<string, string>): Key {
   return { key: row.key, kind: row.kind, fixed, psi_ms: cellList(row.psi_ms) }
 }
 
-// Whether an entry with these qualifiers has this key.
-function keyDescribes(key: Key, qualifiers: Record<string, string>): boolean {
-  return qualifiers.kind === key.kind && Object.entries(key.fixed).every(([name, value]) => qualifiers[name] === value)
+// Whether an entry of this kind with these qualifiers has this key.
+function keyDescribes(key: Key, kind: string, qualifiers: Record<string, string>): boolean {
+  return kind === key.kind && Object.entries(key.fixed).every(([name, value]) => qualifiers[name] === value)
 }
 
 // Where an entry's field lives, from its id: a layer by its key, an obs or var column by its column,
@@ -155,8 +163,7 @@ function addressReference(entryId: string, address: EntryAddress): EntryReferenc
 
 // One entry from its entries.csv row, its other qualifiers and the key they match: exactly one.
 function rowEntry(bundle: Bundle, row: Row, address: EntryAddress, qualifiers: Record<string, string>, keys: Key[]): Entry {
-  const described = { kind: row.kind, ...qualifiers }
-  const matching = keys.filter((key) => keyDescribes(key, described)).map((key) => key.key)
+  const matching = keys.filter((key) => keyDescribes(key, row.kind, qualifiers)).map((key) => key.key)
   const [key] = matching
   if (matching.length !== 1 || key === undefined) {
     throw new Error(`${row.entry_id}: matches the keys ${matching.join(', ')}, not exactly one`)
@@ -166,7 +173,8 @@ function rowEntry(bundle: Bundle, row: Row, address: EntryAddress, qualifiers: R
     software_version_pattern: entryPatterns(bundle, address),
     reference: addressReference(row.entry_id, address),
     key,
-    qualifiers: described,
+    kind: row.kind,
+    qualifiers,
   }
 }
 
@@ -193,19 +201,21 @@ function vendorCatalogues(bundle: Bundle, name: string, entries: Map<string, Ent
   }))
 }
 
-// A set's vocabulary from its vocabulary.csv rows: the set's, each qualifier's, and each value's.
-function setVocabulary(rows: Row[], head: Row): SetVocabulary {
+// A set's vocabulary from its sets.csv row, its kinds, its qualifiers and their values.
+function setVocabulary(head: Row, kinds: Row[], qualifierRows: Row[], values: Row[]): SetVocabulary {
   const qualifiers: SetVocabulary['qualifiers'] = {}
-  for (const row of rows) {
-    if (row.qualifier !== '' && row.value === '') qualifiers[row.qualifier] = { definition: row.definition, values: {} }
-  }
-  for (const row of rows) {
-    if (row.value === '') continue
+  for (const row of qualifierRows) qualifiers[row.qualifier] = { definition: row.definition, values: {} }
+  for (const row of values) {
     const qualifier = qualifiers[row.qualifier]
-    if (qualifier === undefined) throw new Error(`vocabulary.csv defines '${row.value}' of no qualifier`)
+    if (qualifier === undefined) throw new Error(`qualifier_values.csv defines '${row.value}' of no qualifier`)
     qualifier.values[row.value] = row.definition
   }
-  return { definition: head.definition, qualifiers }
+  return {
+    definition: head.definition,
+    kind_definition: head.kind_definition,
+    kinds: Object.fromEntries(kinds.map((row) => [row.kind, row.definition])),
+    qualifiers,
+  }
 }
 
 interface DataPackage {
@@ -296,9 +306,9 @@ export function rowDescribes(row: RequirementRow, entry: Entry): boolean {
   )
 }
 
-// The qualifier values a request for a key accepts: its kind and the values it fixes.
-export function keyPredicate(key: Key): Accepted {
-  return { kind: [key.kind], ...Object.fromEntries(Object.entries(key.fixed).map(([name, value]) => [name, [value]])) }
+// The qualifier values a request for a key accepts besides its kind: the values it fixes.
+export function keyAccepted(key: Key): Accepted {
+  return Object.fromEntries(Object.entries(key.fixed).map(([name, value]) => [name, [value]]))
 }
 
 interface ReviewedRule {
@@ -324,13 +334,12 @@ export class CatalogueSet {
 
   constructor(bundle: Bundle, name: string) {
     const rows = (table: string): Row[] => catalogueRows(bundle, table).filter((row) => row.set === name)
-    const vocabulary = rows('vocabulary')
-    const heads = vocabulary.filter((row) => row.qualifier === '')
+    const heads = rows('sets')
     const head = heads[0]
     if (heads.length !== 1 || head === undefined) {
       throw new Error(`unknown catalogue '${name}'; packaged: ${setNames(bundle).join(', ')}`)
     }
-    const setVocab = setVocabulary(vocabulary, head)
+    const setVocab = setVocabulary(head, rows('kinds'), rows('qualifiers'), rows('qualifier_values'))
     const fixed = new Map<string, Record<string, string>>()
     for (const row of rows('key_qualifiers')) {
       fixed.set(row.key, { ...fixed.get(row.key), [row.qualifier]: row.value })
@@ -436,7 +445,5 @@ export function catalogueSet(bundle: Bundle, name: string): CatalogueSet {
 }
 
 export function setNames(bundle: Bundle): string[] {
-  return catalogueRows(bundle, 'vocabulary')
-    .filter((row) => row.qualifier === '')
-    .map((row) => row.set)
+  return catalogueRows(bundle, 'sets').map((row) => row.set)
 }

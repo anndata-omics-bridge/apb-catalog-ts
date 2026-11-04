@@ -16,9 +16,9 @@ function fieldName(entry: Entry): string {
   return `prefix:${reference.prefix}`
 }
 
-// The set's qualifiers besides kind, in vocabulary order.
-function otherQualifiers(set: CatalogueSet): string[] {
-  return Object.keys(set.vocabulary.qualifiers).filter((name) => name !== 'kind')
+// The set's qualifiers, in vocabulary order; the kind is a column of its own.
+function qualifierNames(set: CatalogueSet): string[] {
+  return Object.keys(set.vocabulary.qualifiers)
 }
 
 // One table row: where the entry's field lives, its key and qualifiers, its requirement.
@@ -39,9 +39,9 @@ export function entryRow(
     table: reference.table,
     name: fieldName(entry),
     key: entry.key,
-    kind: entry.qualifiers.kind ?? null,
+    kind: entry.kind,
   }
-  for (const qualifier of otherQualifiers(set)) {
+  for (const qualifier of qualifierNames(set)) {
     row[`qualifier.${qualifier}`] = entry.qualifiers[qualifier] ?? null
   }
   row.requirement = set.requirements.find((requirement) => rowDescribes(requirement, entry))?.requirement ?? null
@@ -69,7 +69,7 @@ export function setColumns(set: CatalogueSet): string[] {
     ...KEY_COLUMNS,
     'key',
     'kind',
-    ...otherQualifiers(set).map((name) => `qualifier.${name}`),
+    ...qualifierNames(set).map((name) => `qualifier.${name}`),
     'requirement',
     'entry_id',
   ]

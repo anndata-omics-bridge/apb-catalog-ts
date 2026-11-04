@@ -155,11 +155,11 @@ function coverageField(entry: Entry, producer: ProducerCatalogue | null): TableR
   const reference = entry.reference
   const others: Record<string, string> = {}
   for (const [name, value] of Object.entries(entry.qualifiers)) {
-    if (name !== 'kind' && name !== 'origin') others[name] = value
+    if (name !== 'origin') others[name] = value
   }
   return {
     key: entry.key,
-    kind: entry.qualifiers.kind ?? null,
+    kind: entry.kind,
     qualifiers: qualifierPairs(others),
     origin: entry.qualifiers.origin ?? null,
     producer: producer === null ? null : producer.producer,

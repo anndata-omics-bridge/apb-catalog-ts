@@ -4,14 +4,16 @@ import { UnresolvedField } from './conditions.js'
 import { sortC, unique } from './json.js'
 import { READS, UNKNOWN, type Accepted, type Entry, type EntryReference, type ReviewedRule } from './source.js'
 
-// A consumer's question: one level and location, constrained by accepted qualifier values. `key`
-// names the access key asked for; `qualifiers` hold what it stands for, its kind and fixed values,
-// plus any further qualifiers asked. Qualifiers left out accept any value; accepting "unknown"
-// admits entries that leave it unknown.
+// A consumer's question: one level and location, constrained by a kind and accepted qualifier
+// values. `key` names the access key asked for and `kind` the kind it stands for, null when the
+// request spans every key; `qualifiers` hold the values the key fixes, plus any further
+// qualifiers asked. Qualifiers left out accept any value; an entry that leaves its kind or a
+// qualifier unknown is undecided unless the request accepts "unknown" there.
 export interface FieldRequest {
   level: string
   location: string | null
   key: string | null
+  kind: string | null
   qualifiers: Accepted
 }
 
@@ -19,6 +21,7 @@ export interface Candidate {
   entry_id: string
   reference: EntryReference
   key: string
+  kind: string
   qualifiers: Record<string, string>
   undecided: string[]
 }
@@ -33,25 +36,36 @@ export type Status = 'resolved' | 'ambiguous' | 'unknown' | 'missing'
 
 function requestAdmits(request: FieldRequest, entry: Entry): boolean {
   const selects = request.location === null || (READS[request.location] ?? []).includes(entry.reference.location)
-  return selects && requestMismatched(request, entry.qualifiers).length === 0
+  return selects && requestMismatched(request, entry).length === 0
 }
 
-// The requested qualifiers an entry's known values contradict.
-function requestMismatched(request: FieldRequest, qualifiers: Record<string, string>): string[] {
-  return Object.entries(request.qualifiers)
-    .filter(([name, accepted]) => qualifiers[name] !== UNKNOWN && !accepted.includes(qualifiers[name] as string))
+// What the request asks that an entry's known kind or values contradict.
+function requestMismatched(request: FieldRequest, entry: Entry): string[] {
+  const kind = request.kind !== null && entry.kind !== UNKNOWN && entry.kind !== request.kind
+  const qualifiers = Object.entries(request.qualifiers)
+    .filter(([name, accepted]) => entry.qualifiers[name] !== UNKNOWN && !accepted.includes(entry.qualifiers[name] as string))
     .map(([name]) => name)
+  return kind ? ['kind', ...qualifiers] : qualifiers
 }
 
-// The requested qualifiers an entry leaves unknown.
-function requestUndecided(request: FieldRequest, qualifiers: Record<string, string>): string[] {
-  return Object.entries(request.qualifiers)
-    .filter(([name, accepted]) => qualifiers[name] === UNKNOWN && !accepted.includes(UNKNOWN))
+// What the request asks that an entry leaves unknown: its kind or qualifiers.
+function requestUndecided(request: FieldRequest, entry: Entry): string[] {
+  const kind = request.kind !== null && request.kind !== UNKNOWN && entry.kind === UNKNOWN
+  const qualifiers = Object.entries(request.qualifiers)
+    .filter(([name, accepted]) => entry.qualifiers[name] === UNKNOWN && !accepted.includes(UNKNOWN))
     .map(([name]) => name)
+  return kind ? ['kind', ...qualifiers] : qualifiers
 }
 
 function newCandidate(entry: Entry, undecided: string[] = []): Candidate {
-  return { entry_id: entry.entry_id, reference: entry.reference, key: entry.key, qualifiers: entry.qualifiers, undecided }
+  return {
+    entry_id: entry.entry_id,
+    reference: entry.reference,
+    key: entry.key,
+    kind: entry.kind,
+    qualifiers: entry.qualifiers,
+    undecided,
+  }
 }
 
 // The answer to one request; only a resolved one carries a reference. `requirement` records the
@@ -95,7 +109,7 @@ export class Resolution {
 export function resolveEntries(entries: Entry[], pending: Pending[], request: FieldRequest, missing: string): Resolution {
   const compatible = entries
     .filter((entry) => requestAdmits(request, entry))
-    .map((entry) => newCandidate(entry, requestUndecided(request, entry.qualifiers)))
+    .map((entry) => newCandidate(entry, requestUndecided(request, entry)))
   const waiting = pending.filter((found) => requestAdmits(request, found.entry))
   const matches = compatible.filter((candidate) => candidate.undecided.length === 0)
   const undecided = compatible.filter((candidate) => candidate.undecided.length > 0)
