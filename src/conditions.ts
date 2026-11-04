@@ -33,8 +33,8 @@ export class UnresolvedField extends Error {
   }
 }
 
-// A field the catalogue set requires is missing. Thrown, or passed to console.warn for a SHOULD
-// field when the lookup enforces MUST.
+// A field the catalogue set requires is missing. Thrown, or passed to console.warn for a
+// recommended field when the lookup enforces required.
 export class MissingRequiredField extends Error {
   override name = 'MissingRequiredField'
   readonly resolution: Resolution

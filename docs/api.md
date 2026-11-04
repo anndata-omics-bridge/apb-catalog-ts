@@ -62,13 +62,13 @@ A bundle of another format than the package reads is refused: a newer one with "
 
 ## Requirements and `enforce`
 
-`{ enforce: 'MUST' }` or `{ enforce: 'SHOULD' }` makes a set's requirement rows binding:
+`{ enforce: 'required' }` or `{ enforce: 'recommended' }` makes a set's requirement rows binding:
 
-| Created with | `MUST` absent | `SHOULD` absent | `MAY` absent |
+| Created with | `required` absent | `recommended` absent | `optional` absent |
 | --- | --- | --- | --- |
 | no `enforce` | `null` | `null` | `null` |
-| `enforce: 'MUST'` | throws `MissingRequiredField` | `null`, and a `MissingRequiredField` passed to `console.warn` | `null` |
-| `enforce: 'SHOULD'` | throws | throws | `null` |
+| `enforce: 'required'` | throws `MissingRequiredField` | `null`, and a `MissingRequiredField` passed to `console.warn` | `null` |
+| `enforce: 'recommended'` | throws | throws | `null` |
 
 `enforce` on a catalog whose sets have no requirement rows throws.
 

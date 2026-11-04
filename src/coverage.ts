@@ -35,7 +35,7 @@ const COVERAGE_COLUMNS = [
   'verdict',
 ]
 
-const SEVERITY: Record<string, string> = { MUST: 'fail', SHOULD: 'warn', MAY: 'warn' }
+const SEVERITY: Record<string, string> = { required: 'fail', recommended: 'warn', optional: 'pass' }
 
 // Every catalogue set of the bundle with its purpose, its users and its number of entries.
 export function catalogues(bundle: Bundle): TableRow[] {
@@ -54,8 +54,9 @@ export function catalogues(bundle: Bundle): TableRow[] {
 
 // Check every rule against one catalogue set: one row per catalogued or required field of each rule
 // level the set reviews; a set without vendor catalogues is checked against every level the bundle's
-// entries name for each version of versions.csv. A set with requirements judges each level: `fail` when a MUST field is unsupported, `warn` when a SHOULD
-// or MAY field is, `pass` otherwise.
+// entries name for each version of versions.csv. A set with requirements judges each level: `fail`
+// when a required field is unsupported, `warn` when a recommended one is, `pass` otherwise; an
+// unsupported optional field is listed but passes.
 export function rule_coverage(bundle: Bundle, catalogue: string): TableRow[] {
   const set = catalogueSet(bundle, catalogue)
   const rows: TableRow[] = []
@@ -147,7 +148,7 @@ function qualifierPairs(qualifiers: Record<string, string>): string | null {
 function coverageVerdict(requirements: string[]): string {
   const severities = requirements.map((requirement) => SEVERITY[requirement])
   if (severities.includes('fail')) return 'fail'
-  return severities.length > 0 ? 'warn' : 'pass'
+  return severities.includes('warn') ? 'warn' : 'pass'
 }
 
 function coverageField(entry: Entry, producer: ProducerCatalogue | null): TableRow {

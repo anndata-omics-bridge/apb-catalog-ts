@@ -38,7 +38,7 @@ import {
 } from './source.js'
 import { entryRow, records, type TableRow } from './table.js'
 
-export type Enforce = 'MUST' | 'SHOULD'
+export type Enforce = 'required' | 'recommended'
 
 export interface CatalogOptions {
   // Throw MissingRequiredField when a field the set requires at that strength is missing.
@@ -141,14 +141,16 @@ function producerEntries(
 }
 
 function checkEnforce(enforce: Enforce | null): void {
-  if (enforce !== null && enforce !== 'MUST' && enforce !== 'SHOULD') throw new Error('enforce is null, "MUST" or "SHOULD"')
+  if (enforce !== null && enforce !== 'required' && enforce !== 'recommended') {
+    throw new Error('enforce is null, "required" or "recommended"')
+  }
 }
 
-// A missing field the set requires: throw MissingRequiredField, or warn for a SHOULD field under
-// enforce MUST.
+// A missing field the set requires: throw MissingRequiredField, or warn for a recommended field
+// under enforce required.
 function enforceRequirement(resolution: Resolution, row: RequirementRow, enforce: Enforce): Resolution {
   resolution.requirement = row.requirement
-  if (row.requirement === 'MUST' || enforce === 'SHOULD') throw new MissingRequiredField(resolution, row)
+  if (row.requirement === 'required' || enforce === 'recommended') throw new MissingRequiredField(resolution, row)
   console.warn(new MissingRequiredField(resolution, row))
   return resolution
 }
@@ -187,7 +189,7 @@ class Lookups {
     const resolution = this.answer(this.request(level, location, key, qualifiers))
     const row =
       resolution.status === 'missing' && this.enforce !== null ? this.set.requirementFor(level, location, key) : null
-    if (row === null || row.requirement === 'MAY' || this.enforce === null) return resolution
+    if (row === null || row.requirement === 'optional' || this.enforce === null) return resolution
     return enforceRequirement(resolution, row, this.enforce)
   }
 

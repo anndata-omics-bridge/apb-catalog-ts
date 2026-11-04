@@ -30,7 +30,7 @@ export interface CatalogCase {
 export interface DataCatalogCase {
   result: string
   catalogue: string
-  enforce: 'MUST' | 'SHOULD' | null
+  enforce: 'required' | 'recommended' | null
   error?: string
   requests?: RequestCase[]
   keys?: KeysCase[]

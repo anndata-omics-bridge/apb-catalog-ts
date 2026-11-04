@@ -23,7 +23,7 @@ before(async () => {
   writeFileSync(join(newer, 'bundle', 'manifest.json'), JSON.stringify({ ...manifest, bundle_format: 99 }))
   older = mkdtempSync(join(tmpdir(), 'apb-catalog-older-'))
   cpSync(BUNDLE, join(older, 'bundle'), { recursive: true })
-  writeFileSync(join(older, 'bundle', 'manifest.json'), JSON.stringify({ ...manifest, bundle_format: 2 }))
+  writeFileSync(join(older, 'bundle', 'manifest.json'), JSON.stringify({ ...manifest, bundle_format: 3 }))
   const results = unpackResults()
   const provenance = readJson(join(results, RESULT, 'manifest.json'))
   assert.ok(isObject(provenance))
@@ -38,7 +38,7 @@ test('a bundle of a newer format is refused', async () => {
 })
 
 test('a bundle of an older format is refused', async () => {
-  await assert.rejects(Bundle.load(served.url('older/manifest.json')), /has format 2; this package reads format 3/)
+  await assert.rejects(Bundle.load(served.url('older/manifest.json')), /has format 3; this package reads format 4/)
 })
 
 test('a result of another Parquet format version is refused', async () => {
