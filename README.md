@@ -4,6 +4,10 @@ apb-catalog's API in TypeScript: look up the fields of an [APB](https://github.c
 
 Documentation: [anndata-omics-bridge.github.io/apb-catalog-ts](https://anndata-omics-bridge.github.io/apb-catalog-ts/), with [Get started](https://anndata-omics-bridge.github.io/apb-catalog-ts/getting-started) and the [API](https://anndata-omics-bridge.github.io/apb-catalog-ts/api).
 
+Catalog viewer: [fgcz-ms.uzh.ch/public/apb-catalog](https://fgcz-ms.uzh.ch/public/apb-catalog/), every catalogue set with its entries, requirements and coverage, in the browser, built on this package.
+
+Contributing: the catalogs can be extended to suit your application, and you are welcome to create your own; see [Contributing](https://anndata-omics-bridge.github.io/apb-catalog/contributing/).
+
 > **New API.** This package is new, and its API may still change between releases. Feedback is very welcome: open an [issue](https://github.com/anndata-omics-bridge/apb-catalog-ts/issues) with what you need, what surprised you, or what broke.
 
 ## APB

@@ -10,7 +10,8 @@ export default defineConfig({
     nav: [
       { text: 'Get started', link: '/getting-started' },
       { text: 'API', link: '/api' },
-      { text: 'apb-catalog', link: 'https://anndata-omics-bridge.github.io/apb-catalog/' }
+      { text: 'apb-catalog', link: 'https://anndata-omics-bridge.github.io/apb-catalog/' },
+      { text: 'Contributing', link: 'https://anndata-omics-bridge.github.io/apb-catalog/contributing/' }
     ],
     sidebar: [
       { text: 'Overview', link: '/' },
