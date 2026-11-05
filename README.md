@@ -98,6 +98,7 @@ level?.layers.name('pep')
 Each slot, `layers`, `var` and `obs`, answers as Python's does, with `get` in place of `[...]`:
 
 - A name is a key first, then the level's own field of that name; `get` gives null when it is neither
+- A prefix makes the lookup exact: `'c:q_value'` asks the confidence set alone, `'v:q_value'` the level's own field alone; `catalogues(bundle)` lists each set's `prefix`
 - `get(key, { unit: 'minute' })` narrows a key by a qualifier it leaves open
 - `keys()` and `has(key)` know keys only
 - `var.select(keys)` and `obs.select(keys)` read every column the keys name, as `var[[...]]` does

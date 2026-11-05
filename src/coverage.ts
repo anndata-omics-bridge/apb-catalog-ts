@@ -37,7 +37,8 @@ const COVERAGE_COLUMNS = [
 
 const SEVERITY: Record<string, string> = { required: 'fail', recommended: 'warn', optional: 'pass' }
 
-// Every catalogue set of the bundle with its purpose, its users and its number of entries.
+// Every catalogue set of the bundle with its prefix, its purpose, its users and its number of
+// entries; the prefix asks the set alone, as 'c:q_value'.
 export function catalogues(bundle: Bundle): TableRow[] {
   const rows = setNames(bundle).map((name) => {
     const set = catalogueSet(bundle, name)
