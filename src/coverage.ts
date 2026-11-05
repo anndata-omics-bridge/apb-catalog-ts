@@ -43,13 +43,14 @@ export function catalogues(bundle: Bundle): TableRow[] {
     const set = catalogueSet(bundle, name)
     return {
       catalogue: name,
+      prefix: set.vocabulary.prefix,
       purpose: set.description.purpose,
       used_by: [...set.description.used_by],
       has_requirements: set.requirements.length > 0,
       entries: set.sources().reduce((count, source) => count + source.entries.length, 0),
     }
   })
-  return records(rows, ['catalogue', 'purpose', 'used_by', 'has_requirements', 'entries'])
+  return records(rows, ['catalogue', 'prefix', 'purpose', 'used_by', 'has_requirements', 'entries'])
 }
 
 // Check every rule against one catalogue set: one row per catalogued or required field of each rule

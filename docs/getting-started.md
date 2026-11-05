@@ -98,6 +98,14 @@ level?.layers.has('Score')           // false
 level?.layers.has('pep')             // true
 ```
 
+A vendor may name a column as a key is named, as Sage names its quantification q-value `q_value`. A prefix makes the lookup exact: a set's prefix asks that set alone and never the level's own field, `v:` the level's own field alone and never the catalog; `catalogues(bundle)` lists each set's `prefix`:
+
+```ts
+level?.layers.name('c:pep')          // 'PEP': the confidence set alone
+level?.layers.name('v:Score')        // 'Score': MaxQuant's own layer alone
+level?.layers.get('c:Score')         // throws: unknown key 'Score'
+```
+
 Name several sets to read their keys together:
 
 ```ts
@@ -114,7 +122,7 @@ const alphadia = 'results/alphadia_v2-peptidoform_ion.parquet/manifest.json'
 const chromatography = await DataCatalog.load(bundle, alphadia, ['chromatography'])
 const rt = chromatography.levels.get('peptidoform_ion')
 
-rt?.layers.name('retention_time', { unit: 'second' })   // 'RT_Observed'
+rt?.layers.name('retention_time', { unit: 'second' })   // 'precursor_rt_observed'
 await rt?.layers.get('retention_time', { unit: 'minute' })   // null: AlphaDIA's is in seconds
 ```
 

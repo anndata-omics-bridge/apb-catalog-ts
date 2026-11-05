@@ -62,7 +62,7 @@ test('a name that is no key reads the level\'s own field; keys() and has() know 
 
 test('a qualifier the key leaves open narrows it; one the key fixes, or kind, throws', async () => {
   const chromatography = await ion('alphadia_v2-peptidoform_ion', 'chromatography')
-  assert.equal(chromatography.layers.name('retention_time', { unit: 'second' }), 'RT_Observed')
+  assert.equal(chromatography.layers.name('retention_time', { unit: 'second' }), 'precursor_rt_observed')
   assert.equal(await chromatography.layers.get('retention_time', { unit: 'minute' }), null)
   const abundance = await ion('alphadia_v2-peptidoform_ion', 'abundance')
   assert.throws(() => abundance.layers.get('normalized_intensity', { normalization: 'none' }), /ask by key; normalized_intensity fixes normalization/)
@@ -99,4 +99,31 @@ test('a Catalog level holds names: get gives the name or null, and there are no 
   assert.equal(level.layers.get('directlfq'), null)
   assert.throws(() => level.layers.name('directlfq'), KeyError)
   assert.equal(level.layers.get('Precursor_Quantity'), null)
+})
+
+test('a prefix tells a key from the vendor column of its name', async () => {
+  const level = await ion('sage-peptidoform_ion', 'confidence')
+  assert.equal(level.var.name('q_value'), 'q_value')
+  assert.equal(level.var.name('v:q_value'), 'q_value')
+  assert.equal(level.var.name('c:quantification_q_value'), 'q_value')
+  assert.equal(await level.var.get('c:q_value'), null)
+  assert.throws(() => level.var.name('c:q_value'), /has no key or field 'c:q_value'/)
+  assert.throws(() => level.var.select(['c:q_value']), KeyError)
+  assert.deepEqual([...(await level.var.select(['v:q_value'])).keys()], ['q_value'])
+  assert.deepEqual([level.var.has('q_value'), level.var.has('c:q_value'), level.var.has('v:q_value')], [false, false, true])
+})
+
+test('a prefix of no composed set, a key its set lacks, or a qualified vendor name throws', async () => {
+  const level = await ion('sage-peptidoform_ion', 'confidence')
+  assert.throws(() => level.var.get('a:intensity'), /unknown prefix 'a' in 'a:intensity'; prefixes: apb, c, v/)
+  assert.throws(() => level.var.get('c:intensity'), /unknown key 'intensity'/)
+  assert.throws(() => level.var.get('v:q_value', { stage: 'run' }), /takes no qualifiers/)
+})
+
+test('a catalog answers its own prefix and no vendor name', () => {
+  const ion = new Catalog(bundle, 'DIA-NN', '2.6.0', 'abundance').levels.get('peptidoform_ion')
+  assert.ok(ion !== undefined)
+  assert.equal(ion.layers.get('a:intensity'), 'Precursor_Quantity')
+  assert.equal(ion.layers.get('v:Precursor_Quantity'), null)
+  assert.throws(() => ion.layers.get('c:pep'), /unknown prefix 'c'.*a, v/)
 })

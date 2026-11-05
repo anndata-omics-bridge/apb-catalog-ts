@@ -48,7 +48,7 @@ test('a layer gives one array per run, named by the obs and var key columns', as
   const stored = await rows(result, 'layers/PEP.parquet')
   const obs = await rows(result, 'obs.parquet')
   const vars = await rows(result, 'var.parquet')
-  assert.deepEqual(pep.runs, obs.map((row) => String(row.Raw_File)))
+  assert.deepEqual(pep.runs, obs.map((row) => String(row.Raw_file)))
   assert.equal(pep.features.length, vars.length)
   assert.equal(pep.values.length, pep.runs.length)
   for (const [run, values] of pep.values.entries()) {

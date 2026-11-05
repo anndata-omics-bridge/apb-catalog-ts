@@ -78,8 +78,10 @@ export interface AnnotationCatalogue {
 export type Source = VendorCatalogue | ProducerCatalogue | AnnotationCatalogue
 
 // What one set's entries mean: its kinds, and the qualifiers that refine a kind, each with its
-// admitted values; "unknown" is among the kinds and among every qualifier's values.
+// admitted values; "unknown" is among the kinds and among every qualifier's values. `prefix` asks
+// the set alone, as 'c:q_value'.
 export interface SetVocabulary {
+  prefix: string
   definition: string
   kind_definition: string
   kinds: Record<string, string>
@@ -211,6 +213,7 @@ function setVocabulary(head: Row, kinds: Row[], qualifierRows: Row[], values: Ro
     qualifier.values[row.value] = row.definition
   }
   return {
+    prefix: head.prefix,
     definition: head.definition,
     kind_definition: head.kind_definition,
     kinds: Object.fromEntries(kinds.map((row) => [row.kind, row.definition])),

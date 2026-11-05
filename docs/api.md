@@ -46,6 +46,7 @@ A bundle of another format than the package reads is refused: a newer one with "
 - `Layer` is `{ runs: string[], features: string[], values: Float64Array[] }`, one array per run; `Column` is a `Float64Array` for numbers (null as NaN), otherwise an array of strings or booleans
 - `qualifiers` is an object of one value per qualifier the key leaves open, such as `{ unit: 'minute' }`; `kind`, or a qualifier the key fixes, throws
 - Lookup follows cf_xarray: a key first, then the level's own name in that slot; `keys()` and `has()` know keys only
+- A prefix makes the lookup exact: a set's prefix asks that set alone, so `'c:q_value'` is the confidence set's q-value or nothing, never Sage's own `q_value` column; `'v:'` asks the level's own name alone, never the catalog; an unknown prefix, or qualifiers on a `'v:'` name, throw
 - Every key `keys()` lists reads: an app's keys, such as apb-fasta's, appear once the app has run
 - A key may name the primary layer and then answers `X()`; `layers` holds the other layers, as in AnnData
 - A lookup is answered at once from the provenance JSON and throws at once; only the data is a promise, and each Parquet file is fetched once
@@ -76,7 +77,7 @@ A bundle of another format than the package reads is refused: a newer one with "
 
 | Call | Returns | Python |
 | --- | --- | --- |
-| `catalogues(bundle)` | One row per set: `catalogue`, `purpose`, `used_by`, `has_requirements`, `entries` | `catalogues()` |
+| `catalogues(bundle)` | One row per set: `catalogue`, `prefix`, `purpose`, `used_by`, `has_requirements`, `entries` | `catalogues()` |
 | `rule_coverage(bundle, set)` | Every packaged rule level checked against one set, one row per field, with `requirement` and `verdict` | `rule_coverage(set)` |
 | `catalogue_table(bundle, set?)` | Every set, or one, as one row per entry and software version pattern | `catalogue_table(catalogue=None)` |
 

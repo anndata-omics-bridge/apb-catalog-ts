@@ -8,8 +8,13 @@
 //
 // `new Catalog(bundle, 'DIA-NN', '1.9.2', 'abundance').levels.get('peptidoform_ion')?.layers.get('intensity')`
 // is 'Precursor_Quantity': the same slots without data hold names.
+//
+// A prefix makes a lookup exact: a set's prefix asks that set alone, 'c:q_value' the confidence
+// set's q-value and never a column of that name; 'v:' asks the level's own name alone, 'v:q_value'
+// the vendor's column and never the catalog.
 
 import { KeyError } from './conditions.js'
+import { sortC } from './json.js'
 import type { Column, Layer, Provenance } from './provenance.js'
 import type { EntryReference } from './source.js'
 
@@ -30,6 +35,19 @@ export interface Lookup {
   offered(level: string, location: Location): string[]
   // Every key of the catalog.
   known: ReadonlySet<string>
+  // One set's lookup alone, by the set's prefix; none in such a lookup itself.
+  sets: ReadonlyMap<string, Lookup>
+}
+
+// The prefix that asks a level's own name, never a set: 'v:q_value'.
+export const VENDOR = 'v'
+
+// The lookup a name asks, the key it asks for, and whether the level's own name answers when the
+// lookup does not.
+interface Route {
+  lookup: Lookup | null
+  key: string
+  own: boolean
 }
 
 // A field's name in its slot; `table/column` for a column of a varm table.
@@ -40,7 +58,7 @@ export function fieldName(reference: EntryReference): string {
 
 // One slot of a level, read by key first and by the level's own name second. As cf_xarray's
 // accessor, keys() and has() know the catalog's keys only; the level's own names are read but not
-// listed.
+// listed. A set's prefix, 'c:q_value', asks that set alone; 'v:Score' the level's own name alone.
 export class Slot<Value> {
   constructor(
     protected readonly level: string,
@@ -54,7 +72,7 @@ export class Slot<Value> {
   // The field a key names, narrowed by further qualifiers, else the level's own field of that name;
   // null when it is neither. Throws UnresolvedField when the key names several fields or one the
   // catalogue cannot decide, and an Error for qualifiers with a name that is no key or that the key
-  // fixes.
+  // fixes, qualifiers on a 'v:' name, a prefix of no composed set, or a key its set lacks.
   get(key: string, qualifiers: Qualifiers = {}): Value {
     return this.read(this.reference(key, qualifiers))
   }
@@ -67,9 +85,11 @@ export class Slot<Value> {
     return fieldName(reference)
   }
 
-  // Whether the level offers this key here.
+  // Whether the level offers this key here; for 'v:', whether it has this own name.
   has(key: string): boolean {
-    return this.keys().includes(key)
+    const route = this.route(key, {})
+    if (route.lookup === null) return this.named.has(route.key)
+    return route.lookup.offered(this.level, this.location).includes(route.key)
   }
 
   // The keys the level offers in this slot, sorted.
@@ -77,12 +97,35 @@ export class Slot<Value> {
     return this.lookup.offered(this.level, this.location)
   }
 
-  protected reference(key: string, qualifiers: Qualifiers): EntryReference | null {
-    if (this.lookup.known.has(key) || Object.keys(qualifiers).length > 0) {
-      const found = this.lookup.field(this.level, this.location, key, qualifiers)
-      if (found !== null) return found
+  // A plain name asks every set, then the own name; a set's prefix that set alone; 'v:' the own
+  // name alone, with no lookup and no qualifiers.
+  protected route(name: string, qualifiers: Qualifiers): Route {
+    const colon = name.indexOf(':')
+    if (colon < 0) return { lookup: this.lookup, key: name, own: true }
+    const prefix = name.slice(0, colon)
+    const key = name.slice(colon + 1)
+    if (prefix === VENDOR) {
+      if (Object.keys(qualifiers).length > 0) {
+        throw new Error(`'${name}' names the level's own field, which takes no qualifiers`)
+      }
+      return { lookup: null, key, own: true }
     }
-    return this.own(key)
+    const found = this.lookup.sets.get(prefix)
+    if (found === undefined) {
+      const prefixes = sortC([VENDOR, ...this.lookup.sets.keys()])
+      throw new Error(`unknown prefix '${prefix}' in '${name}'; prefixes: ${prefixes.join(', ')}`)
+    }
+    return { lookup: found, key, own: false }
+  }
+
+  protected reference(name: string, qualifiers: Qualifiers): EntryReference | null {
+    const route = this.route(name, qualifiers)
+    const asked = Object.keys(qualifiers).length > 0
+    if (route.lookup !== null && (route.lookup.known.has(route.key) || asked || !route.own)) {
+      const found = route.lookup.field(this.level, this.location, route.key, qualifiers)
+      if (found !== null || !route.own) return found
+    }
+    return this.own(route.key)
   }
 
   protected own(name: string): EntryReference | null {
@@ -125,11 +168,12 @@ export class Columns<Value, Frame> extends Slot<Value> {
   }
 
   protected fields(name: string): EntryReference[] {
-    if (this.lookup.known.has(name)) {
-      const found = this.lookup.fields(this.level, this.location, name)
+    const route = this.route(name, {})
+    if (route.lookup !== null && (route.lookup.known.has(route.key) || !route.own)) {
+      const found = route.lookup.fields(this.level, this.location, route.key)
       if (found.length > 0) return found
     }
-    const own = this.own(name)
+    const own = route.own ? this.own(route.key) : null
     if (own === null) throw this.missing(name)
     return [own]
   }

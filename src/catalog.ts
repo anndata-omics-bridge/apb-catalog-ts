@@ -225,6 +225,17 @@ class Lookups {
     return resolution.offered().filter((key) => answering.has(key))
   }
 
+  // How this set alone answers keys, as a name with its prefix asks it.
+  alone(): Lookup {
+    return {
+      field: (level, location, key, qualifiers) => this.find(level, location, key, qualifiers),
+      fields: (level, location, key) => this.findAll(level, location, key),
+      offered: (level, location) => this.keys(level, location),
+      known: new Set(this.set.keys.map((key) => key.key)),
+      sets: new Map(),
+    }
+  }
+
   rows(view: LevelView, entries: Entry[]): TableRow[] {
     return entries.map((entry) => entryRow(this.name, this.set, entrySource(entry), view.softwareVersionPattern, entry))
   }
@@ -280,6 +291,7 @@ export class Catalog {
       fields: (level, location, key) => lookups.findAll(level, location, key),
       offered: (level, location) => lookups.keys(level, location),
       known: new Set(set.keys.map((key) => key.key)),
+      sets: new Map([[set.vocabulary.prefix, lookups.alone()]]),
     }
     this.#lookups = lookups
     this.levels = new Map([...views.keys()].map((name) => [name, new LevelNames(name, lookup)]))
@@ -331,6 +343,7 @@ export class DataCatalog {
       fields: (level, location, key) => this.#keyFields(level, location, key),
       offered: (level, location) => this.#offered(level, location),
       known: this.#known,
+      sets: new Map([...this.#sets.values()].map((lookups) => [lookups.set.vocabulary.prefix, lookups.alone()])),
     }
     this.levels = new Map([...provenance.levels.keys()].map((name) => [name, new Level(name, provenance, lookup)]))
   }
